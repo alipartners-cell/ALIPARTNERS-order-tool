@@ -815,33 +815,6 @@ export default function HomePage() {
             masters={productMasters.map(normalizeProductMaster)}
             onChange={setProductMasters}
             onBack={() => setViewMode("table")}
-    
-          
-            onParamsChange={setParams}
-            onApplyParams={() => {
-              setAppliedParams(params);
-              setRowOverrides((prev) => {
-                const next: Record<string, Partial<RawSkuRow>> = {};
-                Object.entries(prev).forEach(([sku, override]) => {
-                  const hasIndividualSettings =
-                    override.product_type !== undefined ||
-                    override.factory_lt_days !== undefined ||
-                    override.inspection_type !== undefined ||
-                    override.ap_inspection_lt_days !== undefined ||
-                    override.shipping_method !== undefined ||
-                    override.international_shipping_lt_days !== undefined ||
-                    override.fba_rsl_receiving_lt_days !== undefined ||
-                    override.safety_stock_days !== undefined ||
-                    override.fba_required_stock !== undefined ||
-                    override.rsl_required_stock !== undefined;
-
-                  if (hasIndividualSettings) {
-                    next[sku] = override;
-                  }
-                });
-                return next;
-              });
-            }}
           />
         ) : !showWorkspace ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-6 p-8">
