@@ -816,7 +816,7 @@ export default function HomePage() {
             onChange={setProductMasters}
             onBack={() => setViewMode("table")}
     
-            appliedParams={appliedParams}
+          
             onParamsChange={setParams}
             onApplyParams={() => {
               setAppliedParams(params);
