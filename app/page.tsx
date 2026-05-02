@@ -815,7 +815,7 @@ export default function HomePage() {
             masters={productMasters.map(normalizeProductMaster)}
             onChange={setProductMasters}
             onBack={() => setViewMode("table")}
-            params={params}
+    
             appliedParams={appliedParams}
             onParamsChange={setParams}
             onApplyParams={() => {
