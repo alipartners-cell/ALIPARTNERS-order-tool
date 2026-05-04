@@ -310,8 +310,8 @@ export default function OrderCalendar({
   };
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-5">
-      <div className="min-w-[1180px]">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-gray-50 p-5">
+      <div className="min-w-[1180px] shrink-0">
       <div className="mb-4 flex items-end justify-between gap-4">
         <div>
           <h2 className="text-lg font-bold text-gray-900">発注計画カレンダー</h2>
@@ -355,7 +355,9 @@ export default function OrderCalendar({
         <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-600">青：将来の発注予定</span>
         {uncalculatableRows.length > 0 && <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-500">日販0で計算不可：{uncalculatableRows.length}件</span>}
       </div>
+      </div>
 
+      <div className="min-w-[1180px] flex-1 overflow-auto pr-1">
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs shadow-sm">
         <span className="font-bold text-gray-600">CNYレート</span>
         <span className="text-gray-500">{rateInfo ? `適用：${rateInfo.applied.toFixed(2)}円（TTS ${rateInfo.tts.toFixed(2)} + 1）` : "自動取得できない場合は手入力してください"}</span>

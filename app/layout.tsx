@@ -12,8 +12,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ja">
-      <body>{children}</body>
+    <html lang="ja" className="min-h-full overflow-y-scroll">
+      <body className="min-h-screen overflow-y-visible">{children}</body>
     </html>
   );
 }
