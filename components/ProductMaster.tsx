@@ -14,6 +14,17 @@ type Props = {
 
 type ProductMasterItemWithSet = ProductMasterItem & {
   unit_per_set?: number;
+  item_type?: "single" | "set" | "bundle";
+  component_jan_1?: string;
+  component_qty_1?: number;
+  component_jan_2?: string;
+  component_qty_2?: number;
+  component_jan_3?: string;
+  component_qty_3?: number;
+  component_jan_4?: string;
+  component_qty_4?: number;
+  component_jan_5?: string;
+  component_qty_5?: number;
 };
 
 const EMPTY_FORM: ProductMasterItemWithSet = {
@@ -41,6 +52,17 @@ const EMPTY_FORM: ProductMasterItemWithSet = {
   memo: "",
   factory_name: "",
   master_status: "complete",
+  item_type: "single",
+  component_jan_1: "",
+  component_qty_1: 1,
+  component_jan_2: "",
+  component_qty_2: 1,
+  component_jan_3: "",
+  component_qty_3: 1,
+  component_jan_4: "",
+  component_qty_4: 1,
+  component_jan_5: "",
+  component_qty_5: 1,
 };
 
 
@@ -56,6 +78,17 @@ const MASTER_TEMPLATE_COLUMNS = [
   "cost_rmb",
   "moq",
   "unit_per_set",
+  "item_type",
+  "component_jan_1",
+  "component_qty_1",
+  "component_jan_2",
+  "component_qty_2",
+  "component_jan_3",
+  "component_qty_3",
+  "component_jan_4",
+  "component_qty_4",
+  "component_jan_5",
+  "component_qty_5",
   "order_unit",
   "product_type",
   "factory_lt_days",
@@ -83,6 +116,17 @@ const MASTER_TEMPLATE_SAMPLE = [
     cost_rmb: 12.5,
     moq: 100,
     unit_per_set: 3,
+    item_type: "single",
+    component_jan_1: "",
+    component_qty_1: "",
+    component_jan_2: "",
+    component_qty_2: "",
+    component_jan_3: "",
+    component_qty_3: "",
+    component_jan_4: "",
+    component_qty_4: "",
+    component_jan_5: "",
+    component_qty_5: "",
     order_unit: 50,
     product_type: "ready",
     factory_lt_days: 5,
@@ -117,6 +161,19 @@ function normalizeSku(value: string) {
 
 function normalizeJanText(value: unknown) {
   return normalizeExcelText(value);
+}
+
+function normalizeItemType(value: unknown): "single" | "set" | "bundle" {
+  const v = String(value ?? "").trim();
+  if (v === "セット") return "set";
+  if (v === "付属品") return "bundle";
+  return "single";
+}
+
+function normalizeComponentQty(value: unknown) {
+  if (value === undefined || value === null || value === "") return 1;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
 function excelText(value: string) {
@@ -157,6 +214,17 @@ function normalizeMaster(input: any): ProductMasterItemWithSet {
     fba_rsl_receiving_lt_days: Number(input.fba_rsl_receiving_lt_days) || 3,
     safety_stock_days: Number(input.safety_stock_days) || 15,
     unit_per_set: Math.max(1, Number(input.unit_per_set ?? input.set_count ?? input["セット数"]) || 1),
+    item_type: normalizeItemType(input.item_type ?? input["商品種別"]),
+    component_jan_1: normalizeJanText(input.component_jan_1 ?? input["構成JAN1"]),
+    component_qty_1: normalizeComponentQty(input.component_qty_1 ?? input["構成数量1"]),
+    component_jan_2: normalizeJanText(input.component_jan_2 ?? input["構成JAN2"]),
+    component_qty_2: normalizeComponentQty(input.component_qty_2 ?? input["構成数量2"]),
+    component_jan_3: normalizeJanText(input.component_jan_3 ?? input["構成JAN3"]),
+    component_qty_3: normalizeComponentQty(input.component_qty_3 ?? input["構成数量3"]),
+    component_jan_4: normalizeJanText(input.component_jan_4 ?? input["構成JAN4"]),
+    component_qty_4: normalizeComponentQty(input.component_qty_4 ?? input["構成数量4"]),
+    component_jan_5: normalizeJanText(input.component_jan_5 ?? input["構成JAN5"]),
+    component_qty_5: normalizeComponentQty(input.component_qty_5 ?? input["構成数量5"]),
     default_inspection_items: Array.isArray(input.default_inspection_items)
       ? input.default_inspection_items.filter((v: unknown): v is InspectionItem =>
           (INSPECTION_ITEMS as readonly string[]).includes(String(v))
@@ -176,6 +244,7 @@ export default function ProductMaster({ masters, onChange, onBack, focusSku }: P
   const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<"all" | "complete" | "draft">("all");
   const [bulkLtOpen, setBulkLtOpen] = useState(false);
+  const [structureOpen, setStructureOpen] = useState(false);
   const [bulkLtForm, setBulkLtForm] = useState({
     factory_lt_days: 5,
     ap_inspection_lt_days: 3,
@@ -211,7 +280,7 @@ export default function ProductMaster({ masters, onChange, onBack, focusSku }: P
     return normalizedMasters.filter((item) => {
       if (statusFilter !== "all" && item.master_status !== statusFilter) return false;
       if (!q) return true;
-      return [item.sku, item.jan, item.asin, item.product_name, item.product_url]
+      return [item.sku, item.jan, item.asin, item.product_name, item.product_url, item.item_type, item.component_jan_1, item.component_jan_2, item.component_jan_3, item.component_jan_4, item.component_jan_5]
         .join(" ")
         .toLowerCase()
         .includes(q);
@@ -227,6 +296,7 @@ export default function ProductMaster({ masters, onChange, onBack, focusSku }: P
   const resetForm = () => {
     setForm(EMPTY_FORM);
     setEditingSku(null);
+    setStructureOpen(false);
   };
 
   const saveForm = () => {
@@ -255,8 +325,10 @@ export default function ProductMaster({ masters, onChange, onBack, focusSku }: P
   };
 
   const editItem = (item: ProductMasterItem) => {
-    setForm(normalizeMaster(item));
+    const normalized = normalizeMaster(item);
+    setForm(normalized);
     setEditingSku(item.sku);
+    setStructureOpen(normalized.item_type !== "single");
   };
 
   const copyItem = (item: ProductMasterItem) => {
@@ -363,6 +435,17 @@ const rows = normalizedMasters.map((item) => ({
   cost_rmb: item.cost_rmb,
   moq: item.moq,
   unit_per_set: Math.max(1, Number(item.unit_per_set || 1)),
+  item_type: item.item_type === "set" ? "セット" : item.item_type === "bundle" ? "付属品" : "単品",
+  component_jan_1: item.component_jan_1 ? excelText(item.component_jan_1) : "",
+  component_qty_1: item.item_type !== "single" && item.component_jan_1 ? Number(item.component_qty_1 || 1) : "",
+  component_jan_2: item.component_jan_2 ? excelText(item.component_jan_2) : "",
+  component_qty_2: item.item_type !== "single" && item.component_jan_2 ? Number(item.component_qty_2 || 1) : "",
+  component_jan_3: item.component_jan_3 ? excelText(item.component_jan_3) : "",
+  component_qty_3: item.item_type !== "single" && item.component_jan_3 ? Number(item.component_qty_3 || 1) : "",
+  component_jan_4: item.component_jan_4 ? excelText(item.component_jan_4) : "",
+  component_qty_4: item.item_type !== "single" && item.component_jan_4 ? Number(item.component_qty_4 || 1) : "",
+  component_jan_5: item.component_jan_5 ? excelText(item.component_jan_5) : "",
+  component_qty_5: item.item_type !== "single" && item.component_jan_5 ? Number(item.component_qty_5 || 1) : "",
   order_unit: Number(item.order_unit || 0),
   product_type: item.product_type || "ready",
   factory_lt_days: Number(item.factory_lt_days || 5),
@@ -516,6 +599,74 @@ const rows = normalizedMasters.map((item) => ({
               <TextInput label="商品URL（Amazon/1688）" value={form.product_url} onChange={(v) => setForm({ ...form, product_url: v })} className="col-span-2" />
               <TextInput label="サイズ" value={form.size} onChange={(v) => setForm({ ...form, size: v })} />
             </div>
+          </div>
+
+          <div className="col-span-4 overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+            <button
+              type="button"
+              onClick={() => setStructureOpen((v) => !v)}
+              className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-100/70"
+            >
+              <div>
+                <p className="text-sm font-bold text-gray-900">商品構成を設定</p>
+                <p className="mt-0.5 text-[11px] text-gray-500">
+                  セット商品・付属品のみ設定します。通常の単品商品は変更不要です。
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-500">
+                  {form.item_type === "set" ? "セット" : form.item_type === "bundle" ? "付属品" : "単品"}
+                </span>
+                <span className="rounded-full bg-gray-100 px-3 py-1 text-[11px] font-bold text-gray-600">
+                  {structureOpen ? "閉じる ▲" : "展開 ▼"}
+                </span>
+              </div>
+            </button>
+
+            {structureOpen && (
+              <div className="border-t border-gray-200 p-4">
+                <div className="mb-3 grid grid-cols-4 gap-3">
+                  <SelectInput
+                    label="商品種別"
+                    value={form.item_type ?? "single"}
+                    onChange={(v) => setForm({ ...form, item_type: v as any })}
+                    options={[
+                      { value: "single", label: "単品" },
+                      { value: "set", label: "セット" },
+                      { value: "bundle", label: "付属品" },
+                    ]}
+                  />
+                </div>
+
+                {(form.item_type === "set" || form.item_type === "bundle") ? (
+                  <div>
+                    {(form.item_type === "set" || form.item_type === "bundle") && (
+  <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">
+    構成JANを入力してください
+  </div>
+)}
+                    <div className="grid grid-cols-5 gap-3">
+                      <TextInput label="構成JAN1" value={form.component_jan_1 ?? ""} onChange={(v) => setForm({ ...form, component_jan_1: v })} />
+                      <NumberInput label="数量1" value={form.component_qty_1 ?? 1} onChange={(v) => setForm({ ...form, component_qty_1: Math.max(1, v || 1) })} />
+                      <TextInput label="構成JAN2" value={form.component_jan_2 ?? ""} onChange={(v) => setForm({ ...form, component_jan_2: v })} />
+                      <NumberInput label="数量2" value={form.component_qty_2 ?? 1} onChange={(v) => setForm({ ...form, component_qty_2: Math.max(1, v || 1) })} />
+                      <div />
+                      <TextInput label="構成JAN3" value={form.component_jan_3 ?? ""} onChange={(v) => setForm({ ...form, component_jan_3: v })} />
+                      <NumberInput label="数量3" value={form.component_qty_3 ?? 1} onChange={(v) => setForm({ ...form, component_qty_3: Math.max(1, v || 1) })} />
+                      <TextInput label="構成JAN4" value={form.component_jan_4 ?? ""} onChange={(v) => setForm({ ...form, component_jan_4: v })} />
+                      <NumberInput label="数量4" value={form.component_qty_4 ?? 1} onChange={(v) => setForm({ ...form, component_qty_4: Math.max(1, v || 1) })} />
+                      <div />
+                      <TextInput label="構成JAN5" value={form.component_jan_5 ?? ""} onChange={(v) => setForm({ ...form, component_jan_5: v })} />
+                      <NumberInput label="数量5" value={form.component_qty_5 ?? 1} onChange={(v) => setForm({ ...form, component_qty_5: Math.max(1, v || 1) })} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px] font-bold text-gray-500">
+                    単品商品は構成JANの設定不要です。
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="col-span-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
@@ -683,16 +834,18 @@ const rows = normalizedMasters.map((item) => ({
                 <th className="px-3 py-2">サイズ</th>
                 <th className="px-3 py-2 text-right">単価(元)</th>
                 <th className="px-3 py-2 text-right">セット数</th>
+                <th className="px-3 py-2">商品種別</th>
+                <th className="px-3 py-2">構成JAN</th>
                 <th className="px-3 py-2 text-right">総LT</th>
                 <th className="px-3 py-2">検品項目</th>
                 <th className="px-3 py-2">備考</th>
-                <th className="px-3 py-2">操作</th>
+                <th className="px-3 py-2 w-[140px]">操作</th>
               </tr>
             </thead>
             <tbody>
               {filteredMasters.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="px-3 py-8 text-center text-gray-500">
+                  <td colSpan={17} className="px-3 py-8 text-center text-gray-500">
                     商品マスタがありません。
                   </td>
                 </tr>
@@ -719,9 +872,9 @@ const rows = normalizedMasters.map((item) => ({
                     </td>
                     <td className="px-3 py-2">
                       {item.master_status === "draft" ? (
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">要補完</span>
+                        <span className="inline-flex h-[20px] items-center rounded-full border border-amber-200 bg-amber-50 px-2 text-[10px] font-bold text-amber-700">要補完</span>
                       ) : (
-                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">登録済み</span>
+                        <span className="inline-flex h-[20px] items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 text-[10px] font-bold text-emerald-700">登録済み</span>
                       )}
                     </td>
                     <td className="px-3 py-2 font-mono font-bold text-gray-900">{item.sku}</td>
@@ -739,6 +892,22 @@ const rows = normalizedMasters.map((item) => ({
                     <td className="px-3 py-2 text-gray-700">{item.size || "-"}</td>
                     <td className="px-3 py-2 text-right font-bold text-gray-900">{Number(item.cost_rmb || 0).toLocaleString()}</td>
                     <td className="px-3 py-2 text-right font-bold text-gray-900">{Number(item.unit_per_set || 1).toLocaleString()}</td>
+                    <td className="px-3 py-2">
+                      <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-[10px] font-bold text-gray-600">
+                        {item.item_type === "set" ? "セット" : item.item_type === "bundle" ? "付属品" : "単品"}
+                      </span>
+                    </td>
+                    <td className="max-w-[220px] px-3 py-2 text-[10px] text-gray-600">
+                      {item.item_type === "set" || item.item_type === "bundle" ? (
+                        <div className="space-y-0.5">
+                          {[1, 2, 3, 4, 5].map((n) => {
+                            const jan = (item as any)[`component_jan_${n}`];
+                            const qty = (item as any)[`component_qty_${n}`] || 1;
+                            return jan ? <div key={n} className="font-mono">{jan} × {qty}</div> : null;
+                          })}
+                        </div>
+                      ) : "-"}
+                    </td>
                     <td className="px-3 py-2 text-right font-bold text-gray-900">{(Number(item.factory_lt_days || 0) + Number(item.ap_inspection_lt_days || 0) + Number(item.international_shipping_lt_days || 0) + Number(item.fba_rsl_receiving_lt_days || 0) + Number(item.safety_stock_days || 0)).toLocaleString()}日</td>
                     <td className="max-w-[220px] px-3 py-2 text-gray-600">
                       {item.default_inspection_items.length > 0
@@ -749,11 +918,11 @@ const rows = normalizedMasters.map((item) => ({
                       <div className="truncate">{item.memo || "-"}</div>
                     </td>
                     <td className="px-3 py-2">
-                      <div className="flex gap-2">
-                        <button onClick={(e) => { e.stopPropagation(); copyItem(item); }} className="rounded-lg bg-indigo-50 px-3 py-1.5 font-bold text-indigo-600 hover:bg-indigo-100">
+                      <div className="flex flex-col gap-1">
+                        <button onClick={(e) => { e.stopPropagation(); copyItem(item); }} className="w-full rounded-lg bg-indigo-50 px-2 py-1 text-[11px] font-bold text-indigo-600 hover:bg-indigo-100">
                           コピー
                         </button>
-                        <button onClick={(e) => { e.stopPropagation(); deleteItem(item.sku); }} className="rounded-lg bg-red-50 px-3 py-1.5 font-bold text-red-600 hover:bg-red-100">
+                        <button onClick={(e) => { e.stopPropagation(); deleteItem(item.sku); }} className="w-full rounded-lg bg-red-50 px-2 py-1 text-[11px] font-bold text-red-600 hover:bg-red-100">
                           削除
                         </button>
                       </div>
