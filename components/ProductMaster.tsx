@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ProductMasterItem } from "@/types";
-import Papa from "papaparse";
-import { INSPECTION_ITEMS, downloadCsv, type InspectionItem } from "@/lib/csv";
+import * as XLSX from "xlsx";
+import { INSPECTION_ITEMS, type InspectionItem } from "@/lib/csv";
 
 type Props = {
   masters: ProductMasterItem[];
@@ -106,8 +106,8 @@ const MASTER_TEMPLATE_COLUMNS = [
 const MASTER_TEMPLATE_SAMPLE = [
   {
     sku: "A001",
-    jan: excelText("4573686551907"),
-    asin: excelText("B0SAMPLEA001"),
+    jan: "4573686551907",
+    asin: "B0SAMPLEA001",
     image_url: "https://m.media-amazon.com/images/I/xxxxxxxx.jpg",
     product_name: "ネックピロー",
     product_url: "https://detail.1688.com/offer/xxxxx.html",
@@ -116,7 +116,7 @@ const MASTER_TEMPLATE_SAMPLE = [
     cost_rmb: 12.5,
     moq: 100,
     unit_per_set: 3,
-    item_type: "single",
+    item_type: "単品",
     component_jan_1: "",
     component_qty_1: "",
     component_jan_2: "",
@@ -141,6 +141,156 @@ const MASTER_TEMPLATE_SAMPLE = [
     factory_name: "青島サンプル工場",
   },
 ];
+
+const XLSX_TEXT_COLUMNS = [
+  "sku",
+  "jan",
+  "asin",
+  "component_jan_1",
+  "component_jan_2",
+  "component_jan_3",
+  "component_jan_4",
+  "component_jan_5",
+] as const;
+
+function masterItemToXlsxRow(item: ProductMasterItemWithSet) {
+  return {
+    sku: String(item.sku ?? ""),
+    jan: String(item.jan ?? ""),
+    asin: String(item.asin ?? ""),
+    image_url: item.image_url || "",
+    product_name: item.product_name,
+    product_url: item.product_url,
+    color: item.color,
+    size: item.size,
+    cost_rmb: item.cost_rmb,
+    moq: item.moq,
+    unit_per_set: Math.max(1, Number(item.unit_per_set || 1)),
+    item_type: item.item_type === "set" ? "セット" : item.item_type === "bundle" ? "付属品" : "単品",
+    component_jan_1: item.component_jan_1 || "",
+    component_qty_1: item.item_type !== "single" && item.component_jan_1 ? Number(item.component_qty_1 || 1) : "",
+    component_jan_2: item.component_jan_2 || "",
+    component_qty_2: item.item_type !== "single" && item.component_jan_2 ? Number(item.component_qty_2 || 1) : "",
+    component_jan_3: item.component_jan_3 || "",
+    component_qty_3: item.item_type !== "single" && item.component_jan_3 ? Number(item.component_qty_3 || 1) : "",
+    component_jan_4: item.component_jan_4 || "",
+    component_qty_4: item.item_type !== "single" && item.component_jan_4 ? Number(item.component_qty_4 || 1) : "",
+    component_jan_5: item.component_jan_5 || "",
+    component_qty_5: item.item_type !== "single" && item.component_jan_5 ? Number(item.component_qty_5 || 1) : "",
+    order_unit: Number(item.order_unit || 0),
+    product_type: item.product_type || "ready",
+    factory_lt_days: Number(item.factory_lt_days || 5),
+    inspection_type: item.inspection_type || "simple",
+    ap_inspection_lt_days: Number(item.ap_inspection_lt_days || 3),
+    shipping_method: item.shipping_method || "air",
+    international_shipping_lt_days: Number(item.international_shipping_lt_days || 5),
+    fba_rsl_receiving_lt_days: Number(item.fba_rsl_receiving_lt_days || 3),
+    safety_stock_days: Number(item.safety_stock_days || 15),
+    default_inspection_items: (item.default_inspection_items || []).join(" / "),
+    memo: item.memo,
+    factory_name: item.factory_name,
+  };
+}
+
+function applyXlsxTextFormat(worksheet: XLSX.WorkSheet, rowCount: number) {
+  const columns = [...MASTER_TEMPLATE_COLUMNS];
+  XLSX_TEXT_COLUMNS.forEach((columnName) => {
+    const colIndex = columns.indexOf(columnName);
+    if (colIndex < 0) return;
+
+    for (let rowIndex = 1; rowIndex <= rowCount; rowIndex += 1) {
+      const address = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+      const cell = worksheet[address];
+      if (!cell) continue;
+      cell.t = "s";
+      cell.z = "@";
+      cell.v = String(cell.v ?? "");
+    }
+  });
+}
+
+function buildMasterWorkbook(rows: Record<string, unknown>[]) {
+  const worksheet = XLSX.utils.json_to_sheet(rows, {
+    header: [...MASTER_TEMPLATE_COLUMNS],
+  });
+
+  worksheet["!cols"] = [
+    { wch: 22 }, // sku
+    { wch: 18 }, // jan
+    { wch: 14 }, // asin
+    { wch: 38 }, // image_url
+    { wch: 28 }, // product_name
+    { wch: 42 }, // product_url
+    { wch: 12 }, // color
+    { wch: 12 }, // size
+    { wch: 12 }, // cost_rmb
+    { wch: 10 }, // moq
+    { wch: 12 }, // unit_per_set
+    { wch: 14 }, // item_type
+    { wch: 18 }, // component_jan_1
+    { wch: 10 }, // component_qty_1
+    { wch: 18 },
+    { wch: 10 },
+    { wch: 18 },
+    { wch: 10 },
+    { wch: 18 },
+    { wch: 10 },
+    { wch: 18 },
+    { wch: 10 },
+    { wch: 12 }, // order_unit
+    { wch: 14 }, // product_type
+    { wch: 14 }, // factory_lt_days
+    { wch: 14 }, // inspection_type
+    { wch: 18 }, // ap_inspection_lt_days
+    { wch: 14 }, // shipping_method
+    { wch: 22 }, // international_shipping_lt_days
+    { wch: 22 }, // fba_rsl_receiving_lt_days
+    { wch: 16 }, // safety_stock_days
+    { wch: 30 }, // default_inspection_items
+    { wch: 30 }, // memo
+    { wch: 22 }, // factory_name
+  ];
+
+  applyXlsxTextFormat(worksheet, rows.length);
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "商品マスタ");
+  return workbook;
+}
+
+function readXlsxRows(file: File): Promise<Record<string, unknown>[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      try {
+        const workbook = XLSX.read(reader.result, {
+          type: "array",
+          cellDates: false,
+        });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+
+        if (!worksheet) {
+          resolve([]);
+          return;
+        }
+
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+          defval: "",
+          raw: true,
+        });
+
+        resolve(rows);
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(file);
+  });
+}
 
 function toNumber(value: string) {
   const n = Number(String(value).replace(/,/g, ""));
@@ -414,77 +564,22 @@ export default function ProductMaster({ masters, onChange, onBack, focusSku }: P
 
 
 
-  const exportCsvTemplate = () => {
-    const content = Papa.unparse(MASTER_TEMPLATE_SAMPLE, {
-      columns: [...MASTER_TEMPLATE_COLUMNS],
-      newline: "\r\n",
-    });
-    downloadCsv(content, "product_master_template.csv");
+  const exportXlsxTemplate = () => {
+    const workbook = buildMasterWorkbook(MASTER_TEMPLATE_SAMPLE);
+    XLSX.writeFile(workbook, "product_master_template.xlsx");
   };
 
-  const exportCsv = () => {
-const rows = normalizedMasters.map((item) => ({
-  // Excelで開いても指数表示・桁落ちしない形式
-  sku: excelText(item.sku),
-  jan: excelText(item.jan),
-  asin: excelText(item.asin),
-  image_url: item.image_url || "",
-
-  product_name: item.product_name,
-  product_url: item.product_url,
-  color: item.color,
-  size: item.size,
-  cost_rmb: item.cost_rmb,
-  moq: item.moq,
-  unit_per_set: Math.max(1, Number(item.unit_per_set || 1)),
-  item_type: item.item_type === "set" ? "セット" : item.item_type === "bundle" ? "付属品" : "単品",
-  component_jan_1: item.component_jan_1 ? excelText(item.component_jan_1) : "",
-  component_qty_1: item.item_type !== "single" && item.component_jan_1 ? Number(item.component_qty_1 || 1) : "",
-  component_jan_2: item.component_jan_2 ? excelText(item.component_jan_2) : "",
-  component_qty_2: item.item_type !== "single" && item.component_jan_2 ? Number(item.component_qty_2 || 1) : "",
-  component_jan_3: item.component_jan_3 ? excelText(item.component_jan_3) : "",
-  component_qty_3: item.item_type !== "single" && item.component_jan_3 ? Number(item.component_qty_3 || 1) : "",
-  component_jan_4: item.component_jan_4 ? excelText(item.component_jan_4) : "",
-  component_qty_4: item.item_type !== "single" && item.component_jan_4 ? Number(item.component_qty_4 || 1) : "",
-  component_jan_5: item.component_jan_5 ? excelText(item.component_jan_5) : "",
-  component_qty_5: item.item_type !== "single" && item.component_jan_5 ? Number(item.component_qty_5 || 1) : "",
-  order_unit: Number(item.order_unit || 0),
-  product_type: item.product_type || "ready",
-  factory_lt_days: Number(item.factory_lt_days || 5),
-  inspection_type: item.inspection_type || "simple",
-  ap_inspection_lt_days: Number(item.ap_inspection_lt_days || 3),
-  shipping_method: item.shipping_method || "air",
-  international_shipping_lt_days: Number(item.international_shipping_lt_days || 5),
-  fba_rsl_receiving_lt_days: Number(item.fba_rsl_receiving_lt_days || 3),
-  safety_stock_days: Number(item.safety_stock_days || 15),
-
-  // 検品は / 区切りで出力
-  default_inspection_items: (item.default_inspection_items || []).join(" / "),
-
-  memo: item.memo,
-  factory_name: item.factory_name,
-}));
-
-    const content = Papa.unparse(rows, {
-      columns: [...MASTER_TEMPLATE_COLUMNS],
-      newline: "\r\n",
-    });
-    downloadCsv(content, `product_master_${new Date().toISOString().slice(0, 10)}.csv`);
+  const exportXlsx = () => {
+    const rows = normalizedMasters.map((item) => masterItemToXlsxRow(item));
+    const workbook = buildMasterWorkbook(rows);
+    XLSX.writeFile(workbook, `product_master_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  const importCsv = async (file: File) => {
+  const importXlsx = async (file: File) => {
     try {
-      const text = await file.text();
-      const result = Papa.parse<Record<string, unknown>>(text, {
-        header: true,
-        skipEmptyLines: true,
-      });
+      const rows = await readXlsxRows(file);
 
-      if (result.errors.length > 0) {
-        throw new Error(result.errors[0]?.message || "CSVの読み込みに失敗しました");
-      }
-
-      const parsed = result.data
+      const parsed = rows
         .map((row) => normalizeMaster(row))
         .filter((item) => item.sku);
 
@@ -504,9 +599,9 @@ const rows = normalizedMasters.map((item) => ({
       });
 
       onChange(Array.from(current.values()).sort((a, b) => a.sku.localeCompare(b.sku)));
-      alert(`商品マスタCSVを取り込みました\n追加：${added}件\n更新：${updated}件`);
+      alert(`商品マスタExcelを取り込みました\n追加：${added}件\n更新：${updated}件`);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "商品マスタCSVの読み込みに失敗しました");
+      alert(error instanceof Error ? error.message : "商品マスタExcelの読み込みに失敗しました");
     }
   };
 
@@ -520,7 +615,7 @@ const rows = normalizedMasters.map((item) => ({
         <div>
           <h2 className="text-lg font-bold text-gray-900">商品マスタ</h2>
           <p className="mt-1 text-xs text-gray-500">
-            CSV読込では上書きされない固定情報です。SKUで一覧・カレンダー・発注CSVに紐づけます。登録済み商品の行をクリックすると編集できます。
+            Excel読込では上書きされない固定情報です。SKUで一覧・カレンダー・発注CSVに紐づけます。登録済み商品の行をクリックすると編集できます。
           </p>
         </div>
 
@@ -534,30 +629,30 @@ const rows = normalizedMasters.map((item) => ({
             </button>
           )}
           <button
-            onClick={exportCsvTemplate}
+            onClick={exportXlsxTemplate}
             className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100"
           >
-            マスタテンプレートDL
+            ExcelテンプレートDL
           </button>
           <label className="cursor-pointer rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-100">
-            CSV一括アップロード
+            Excel一括アップロード
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
-                if (file) void importCsv(file);
+                if (file) void importXlsx(file);
                 e.currentTarget.value = "";
               }}
             />
           </label>
           <button
-            onClick={exportCsv}
+            onClick={exportXlsx}
             disabled={normalizedMasters.length === 0}
             className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
           >
-            マスタCSV DL
+            マスタExcel DL
           </button>
         </div>
       </div>

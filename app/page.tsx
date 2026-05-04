@@ -830,52 +830,50 @@ export default function HomePage() {
       let noJan = 0;
       let unmatched = 0;
 
-      setCsvRows((prev) => {
-        const csvMap = new Map(prev.map((row) => [row.sku, toRawRow(row)]));
-        const nextRawRows: RawSkuRow[] = [];
+      const csvMap = new Map(csvRows.map((row) => [row.sku, toRawRow(row)]));
+      const nextRawRows: RawSkuRow[] = [];
 
-        productMasters.forEach((master) => {
-          const jan = normalizeJan(master.jan);
-          const existing = csvMap.get(master.sku);
+      productMasters.forEach((master) => {
+        const jan = normalizeJan(master.jan);
+        const existing = csvMap.get(master.sku);
 
-          if (!jan) {
-            noJan += 1;
-            if (existing) nextRawRows.push(existing);
-            return;
-          }
+        if (!jan) {
+          noJan += 1;
+          if (existing) nextRawRows.push(existing);
+          return;
+        }
 
-          if (!stockByJan.has(jan)) {
-            unmatched += 1;
-            if (existing) nextRawRows.push(existing);
-            return;
-          }
+        if (!stockByJan.has(jan)) {
+          unmatched += 1;
+          if (existing) nextRawRows.push(existing);
+          return;
+        }
 
-          updated += 1;
-          nextRawRows.push({
-            sku: master.sku,
-            jan: master.jan,
-            product_name: master.product_name,
-            monthly_sales: existing?.monthly_sales ?? 0,
-            fba_stock: existing?.fba_stock ?? 0,
-            rsl_stock: existing?.rsl_stock ?? 0,
-            ap_stock: stockByJan.get(jan) ?? existing?.ap_stock ?? 0,
-            inbound: existing?.inbound ?? 0,
-            amazon_monthly_sales: existing?.amazon_monthly_sales ?? 0,
-            rakuten_monthly_sales: existing?.rakuten_monthly_sales ?? 0,
-            amazon_stock: existing?.amazon_stock ?? 0,
-            rakuten_stock: existing?.rakuten_stock ?? 0,
-            fba_inbound_plan: existing?.fba_inbound_plan ?? 0,
-            rsl_inbound_plan: existing?.rsl_inbound_plan ?? 0,
-            fba_required_stock: existing?.fba_required_stock ?? 0,
-            rsl_required_stock: existing?.rsl_required_stock ?? 0,
-            moq: master.moq || existing?.moq || 0,
-            order_unit: existing?.order_unit ?? 0,
-            ...({ unit_per_set: getUnitPerSetFromMaster(master) } as unknown as Partial<RawSkuRow>),
-          });
+        updated += 1;
+        nextRawRows.push({
+          sku: master.sku,
+          jan: master.jan,
+          product_name: master.product_name,
+          monthly_sales: existing?.monthly_sales ?? 0,
+          fba_stock: existing?.fba_stock ?? 0,
+          rsl_stock: existing?.rsl_stock ?? 0,
+          ap_stock: stockByJan.get(jan) ?? existing?.ap_stock ?? 0,
+          inbound: existing?.inbound ?? 0,
+          amazon_monthly_sales: existing?.amazon_monthly_sales ?? 0,
+          rakuten_monthly_sales: existing?.rakuten_monthly_sales ?? 0,
+          amazon_stock: existing?.amazon_stock ?? 0,
+          rakuten_stock: existing?.rakuten_stock ?? 0,
+          fba_inbound_plan: existing?.fba_inbound_plan ?? 0,
+          rsl_inbound_plan: existing?.rsl_inbound_plan ?? 0,
+          fba_required_stock: existing?.fba_required_stock ?? 0,
+          rsl_required_stock: existing?.rsl_required_stock ?? 0,
+          moq: master.moq || existing?.moq || 0,
+          order_unit: existing?.order_unit ?? 0,
+          ...({ unit_per_set: getUnitPerSetFromMaster(master) } as unknown as Partial<RawSkuRow>),
         });
-
-        return adjustRowsForSetUnits(computeAllRows(nextRawRows, appliedParams), productMasterBySku);
       });
+
+      setCsvRows(adjustRowsForSetUnits(computeAllRows(nextRawRows, appliedParams), productMasterBySku));
 
       alert(
         `AP在庫を更新しました\n更新：${updated}件\nJAN未入力：${noJan}件\nJAN一致なし：${unmatched}件`
@@ -886,6 +884,7 @@ export default function HomePage() {
       setApStockUpdating(false);
     }
   };
+
 
 
   const totalSkus = productMasters.length;
