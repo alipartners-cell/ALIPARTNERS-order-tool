@@ -109,10 +109,10 @@ function DecisionCell({
         : "text-orange-700 bg-orange-50 border-orange-100"
     : "text-gray-400 bg-gray-50 border-gray-100 opacity-55";
   return (
-    <div className={`flex h-[86px] w-[128px] shrink-0 flex-col justify-center rounded-xl border px-3 py-2 text-right transition ${color}`}>
+    <div className={`flex h-[86px] w-[140px] shrink-0 flex-col justify-center rounded-xl border px-3 py-2 text-right transition ${color}`}>
       <div className="text-[11px] font-bold leading-none opacity-70">{label}</div>
-      <div className="mt-1 text-xl font-black leading-tight tabular-nums">
-        {qtyText(value)}{unit ? <span className="ml-1 text-sm font-black">{unit}</span> : null}
+      <div className="mt-1 whitespace-nowrap text-xl font-black leading-tight tabular-nums">
+        {qtyText(value)}{unit ? <span className="ml-1 text-xs font-bold">{unit}</span> : null}
       </div>
       <div className="mt-1 min-h-[12px] text-[10px] font-bold leading-none opacity-60">{subLabel || " "}</div>
     </div>

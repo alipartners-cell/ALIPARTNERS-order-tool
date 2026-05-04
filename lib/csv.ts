@@ -33,13 +33,21 @@ const cleanJan = (value: unknown): string => {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
 
-  // Excel等で 4.580540189947e+12 のように指数表記になったJANをできるだけ戻す。
-  if (/^\d+(\.\d+)?e\+\d+$/i.test(raw)) {
-    const n = Number(raw);
-    if (Number.isFinite(n)) return Math.trunc(n).toFixed(0);
-  }
+  // Excel対策:
+  // CSV出力時は ="4580540183761" 形式で出す。
+  // 取込時はそのラップだけ外し、13桁の数字だけをJANとして採用する。
+  //
+  // 注意:
+  // 4.58054E+12 のような指数表記は、すでにExcel側で丸められている可能性があるため復元しない。
+  // 誤ったJANで紐づく方が危険なので、13桁にならない値は不正扱い（空欄）にする。
+  const unwrapped = raw
+    .replace(/^="/, "")
+    .replace(/"$/, "")
+    .replace(/^'/, "")
+    .trim();
 
-  return raw.replace(/[^\d]/g, "");
+  const digits = unwrapped.replace(/[^0-9]/g, "");
+  return digits.length === 13 ? digits : "";
 };
 
 const normalizeHeader = (value: string) => value.toLowerCase().replace(/[\s_\-（）()\[\]【】]/g, "");

@@ -160,7 +160,9 @@ function normalizeSku(value: string) {
 }
 
 function normalizeJanText(value: unknown) {
-  return normalizeExcelText(value);
+  const raw = normalizeExcelText(value);
+  const digits = raw.replace(/[^0-9]/g, "");
+  return digits.length === 13 ? digits : "";
 }
 
 function normalizeItemType(value: unknown): "single" | "set" | "bundle" {
