@@ -902,27 +902,18 @@ export default function HomePage() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-white text-gray-900">
       <header className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setViewMode("table")}
-            title="一覧へ戻る"
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white hover:bg-indigo-500"
-          >
-            A
-          </button>
-          <div>
-            <h1 className="flex items-center text-lg font-extrabold tracking-tight text-gray-900 md:text-xl">
-              アリパートナーズ発注計画管理ツール
-              <span className="ml-2 rounded-md bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-600">
-                BETA
-              </span>
-            </h1>
-            <p className="mt-0.5 text-[11px] font-semibold tracking-wide text-gray-400">
-              AriPartners Order Planning Management Tool
-            </p>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => setViewMode("table")}
+          title="一覧へ戻る"
+          className="flex items-center rounded-lg transition hover:opacity-80"
+        >
+          <img
+            src="/logo.png"
+            alt="ALIPARTNERS"
+            className="h-12 w-auto"
+          />
+        </button>
 
         {totalSkus > 0 && (
           <div className="flex gap-8 text-right">

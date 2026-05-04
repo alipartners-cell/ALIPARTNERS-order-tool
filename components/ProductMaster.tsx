@@ -693,7 +693,7 @@ export default function ProductMaster({ masters, onChange, onBack, focusSku }: P
               <TextInput label="ASIN" value={form.asin} onChange={(v) => setForm({ ...form, asin: v })} />
               <TextInput label="商品名" value={form.product_name} onChange={(v) => setForm({ ...form, product_name: v })} className="col-span-2" />
               <TextInput label="色" value={form.color} onChange={(v) => setForm({ ...form, color: v })} />
-              <TextInput label="商品URL（Amazon/1688）" value={form.product_url} onChange={(v) => setForm({ ...form, product_url: v })} className="col-span-2" />
+              <TextInput label="仕入先URL（1688/淘宝等）" value={form.product_url} onChange={(v) => setForm({ ...form, product_url: v })} className="col-span-2" />
               <TextInput label="サイズ" value={form.size} onChange={(v) => setForm({ ...form, size: v })} />
             </div>
           </div>
