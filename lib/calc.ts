@@ -31,18 +31,41 @@ function applyMoqAndOrderUnit(shortageQty: number, moq?: number, orderUnit?: num
 }
 
 export function computeRow(row: RawSkuRow, params: OrderParams): ComputedSkuRow {
-  const amazon_monthly_sales = num(row.amazon_monthly_sales || row.monthly_sales);
-  const rakuten_monthly_sales = num(row.rakuten_monthly_sales);
-  const amazon_stock = num(row.amazon_stock || row.fba_stock);
-  const rakuten_stock = num(row.rakuten_stock || row.rsl_stock);
-  const fba_inbound_plan = num(row.fba_inbound_plan || row.inbound);
+  const explicitAmazonMonthlySales = num(row.amazon_monthly_sales);
+  const explicitRakutenMonthlySales = num(row.rakuten_monthly_sales);
+  const legacyMonthlySales = num(row.monthly_sales);
+
+  // 重要：Amazon/Rakutenの個別月販が入っている場合は、それぞれの値をそのまま使う。
+  // 以前の「row.amazon_monthly_sales || row.monthly_sales」だと、
+  // 楽天だけのCSVでも monthly_sales がAmazon月販に流用され、Amazon/Rakutenが同じ数字になる。
+  const hasChannelSales = explicitAmazonMonthlySales > 0 || explicitRakutenMonthlySales > 0;
+  const amazon_monthly_sales = hasChannelSales ? explicitAmazonMonthlySales : legacyMonthlySales;
+  const rakuten_monthly_sales = hasChannelSales ? explicitRakutenMonthlySales : 0;
+
+  const amazon_stock = row.amazon_stock !== undefined && row.amazon_stock !== null
+    ? num(row.amazon_stock)
+    : num(row.fba_stock);
+  const rakuten_stock = row.rakuten_stock !== undefined && row.rakuten_stock !== null
+    ? num(row.rakuten_stock)
+    : num(row.rsl_stock);
+  const fba_inbound_plan = row.fba_inbound_plan !== undefined && row.fba_inbound_plan !== null
+    ? num(row.fba_inbound_plan)
+    : num(row.inbound);
   const rsl_inbound_plan = num(row.rsl_inbound_plan);
 
-  const monthly_sales = num(row.monthly_sales || amazon_monthly_sales + rakuten_monthly_sales);
-  const fba_stock = num(row.fba_stock || amazon_stock);
-  const rsl_stock = num(row.rsl_stock || rakuten_stock);
+  const monthly_sales = hasChannelSales
+    ? amazon_monthly_sales + rakuten_monthly_sales
+    : legacyMonthlySales;
+  const fba_stock = row.fba_stock !== undefined && row.fba_stock !== null
+    ? num(row.fba_stock)
+    : amazon_stock;
+  const rsl_stock = row.rsl_stock !== undefined && row.rsl_stock !== null
+    ? num(row.rsl_stock)
+    : rakuten_stock;
   const ap_stock = num(row.ap_stock);
-  const inbound = num(row.inbound || fba_inbound_plan + rsl_inbound_plan);
+  const inbound = row.inbound !== undefined && row.inbound !== null
+    ? num(row.inbound)
+    : fba_inbound_plan + rsl_inbound_plan;
   const moq = num(row.moq);
   const order_unit = num(row.order_unit);
 

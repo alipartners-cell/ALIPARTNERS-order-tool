@@ -8,6 +8,7 @@ type Props = {
   rows: ComputedSkuRow[];
   selected: Set<string>;
   onToggle: (sku: string) => void;
+  onDownloadOrderCsv?: () => void;
   filterOrderOnly: boolean;
   productMasters: Record<string, ProductMasterItem>;
   inspectionSelections?: InspectionSelections;
@@ -155,6 +156,7 @@ export default function OrderCalendar({
   rows,
   selected,
   onToggle,
+  onDownloadOrderCsv,
   filterOrderOnly,
   productMasters,
   inspectionSelections = {},
@@ -167,6 +169,7 @@ export default function OrderCalendar({
   const [rateMessage, setRateMessage] = useState("");
   const [manualTts, setManualTts] = useState("");
   const [modal, setModal] = useState<{ title: string; items: CalendarItem[] } | null>(null);
+  const [showUncalculatableRows, setShowUncalculatableRows] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -282,6 +285,21 @@ export default function OrderCalendar({
   const urgentItems = calendarItems.filter((item) => item.kind === "urgent");
   const futureItems = calendarItems.filter((item) => item.kind !== "urgent");
 
+  const selectItems = (items: CalendarItem[]) => {
+    items.forEach((item) => {
+      if (!selected.has(item.sku)) onToggle(item.sku);
+    });
+  };
+
+  const clearItems = (items: CalendarItem[]) => {
+    items.forEach((item) => {
+      if (selected.has(item.sku)) onToggle(item.sku);
+    });
+  };
+
+  const allItemsSelected = (items: CalendarItem[]) =>
+    items.length > 0 && items.every((item) => selected.has(item.sku));
+
   const moveMonth = (diff: number) => {
     setCurrentMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + diff, 1));
   };
@@ -292,13 +310,24 @@ export default function OrderCalendar({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-gray-50 p-5">
+    <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-5">
+      <div className="min-w-[1180px]">
       <div className="mb-4 flex items-end justify-between gap-4">
         <div>
           <h2 className="text-lg font-bold text-gray-900">発注計画カレンダー</h2>
           <p className="mt-1 text-xs text-gray-500">在庫切れ予測日から総リードタイムと安全在庫日数を逆算して発注予定日を表示します。</p>
         </div>
         <div className="flex items-center gap-2">
+          {onDownloadOrderCsv && (
+            <button
+              type="button"
+              onClick={onDownloadOrderCsv}
+              disabled={selected.size === 0}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              ↓ 発注CSVダウンロード{selected.size > 0 ? `（${selected.size}件）` : ""}
+            </button>
+          )}
           <button onClick={() => moveMonth(-1)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100">← 前月</button>
           <div className="min-w-[120px] text-center text-sm font-bold text-gray-900">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</div>
           <button onClick={() => moveMonth(1)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100">翌月 →</button>
@@ -387,13 +416,24 @@ export default function OrderCalendar({
       </div>
 
       <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-        <h3 className="mb-3 text-sm font-bold text-gray-900">発注予定リスト</h3>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-bold text-gray-900">発注予定リスト</h3>
+          {calendarItems.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => selectItems(calendarItems)} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100">表示中を一括選択</button>
+              <button type="button" onClick={() => clearItems(calendarItems)} className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-bold text-gray-600 hover:bg-gray-50">表示中を一括解除</button>
+              {onDownloadOrderCsv && (
+                <button type="button" onClick={onDownloadOrderCsv} disabled={selected.size === 0} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-30">選択中を発注CSVダウンロード</button>
+              )}
+            </div>
+          )}
+        </div>
         {calendarItems.length === 0 ? (
           <p className="text-xs text-gray-500">表示できる発注予定がありません。</p>
         ) : (
           <div className="max-h-[280px] overflow-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="sticky top-0 bg-white text-gray-500">
+            <table className="min-w-[1180px] w-full text-left text-xs">
+              <thead className="sticky top-0 z-10 bg-white text-gray-500">
                 <tr className="border-b border-gray-200">
                   <th className="px-2 py-2">発注予定日</th>
                   <th className="px-2 py-2">区分</th>
@@ -430,16 +470,39 @@ export default function OrderCalendar({
         )}
 
         {uncalculatableRows.length > 0 && !filterOrderOnly && (
-          <div className="mt-4 rounded-lg bg-gray-50 p-3">
-            <p className="mb-2 text-xs font-bold text-gray-600">日販0のため発注予定日を計算できないSKU</p>
-            <div className="flex flex-wrap gap-2">
-              {uncalculatableRows.map((row) => <span key={row.sku} className="rounded-full bg-white px-3 py-1 text-[11px] font-bold text-gray-500 shadow-sm">{row.sku}</span>)}
-            </div>
+          <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 bg-gray-50 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setShowUncalculatableRows((v) => !v)}
+              className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-100"
+            >
+              <span className="text-xs font-bold text-gray-600">
+                日販0のため発注予定日を計算できないSKU（{uncalculatableRows.length}件）
+              </span>
+              <span className="rounded-full bg-white px-3 py-1 text-[11px] font-bold text-gray-500 shadow-sm">
+                {showUncalculatableRows ? "閉じる ▲" : "クリックで展開 ▼"}
+              </span>
+            </button>
+
+            {showUncalculatableRows && (
+              <div className="border-t border-gray-200 p-3">
+                <div className="max-h-[220px] overflow-auto rounded-lg bg-white p-3">
+                  <div className="flex flex-wrap gap-2">
+                    {uncalculatableRows.map((row) => (
+                      <span key={row.sku} className="rounded-full bg-gray-50 px-3 py-1 text-[11px] font-bold text-gray-500 shadow-sm">
+                        {row.sku}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {modal && <CalendarItemsModal title={modal.title} items={modal.items} productMasters={productMasters} onClose={() => setModal(null)} onToggle={onToggle} selected={selected} appliedCnyRate={appliedCnyRate} />}
+      </div>
+      {modal && <CalendarItemsModal title={modal.title} items={modal.items} productMasters={productMasters} onClose={() => setModal(null)} onToggle={onToggle} selected={selected} appliedCnyRate={appliedCnyRate} onSelectAll={selectItems} onClearAll={clearItems} allSelected={allItemsSelected(modal.items)} />}
     </div>
   );
 }
@@ -507,6 +570,9 @@ function CalendarItemsModal({
   onToggle,
   selected,
   appliedCnyRate,
+  onSelectAll,
+  onClearAll,
+  allSelected,
 }: {
   title: string;
   items: CalendarItem[];
@@ -515,6 +581,9 @@ function CalendarItemsModal({
   onToggle: (sku: string) => void;
   selected: Set<string>;
   appliedCnyRate: number;
+  onSelectAll: (items: CalendarItem[]) => void;
+  onClearAll: (items: CalendarItem[]) => void;
+  allSelected: boolean;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
@@ -524,7 +593,15 @@ function CalendarItemsModal({
             <h3 className="text-base font-bold text-gray-900">{title}</h3>
             <p className="mt-1 text-xs text-gray-500">{items.length}件</p>
           </div>
-          <button onClick={onClose} className="rounded-lg px-3 py-1 text-sm font-bold text-gray-500 hover:bg-gray-100">✕</button>
+          <div className="flex items-center gap-2">
+            {items.length > 0 && (
+              <>
+                <button type="button" onClick={() => onSelectAll(items)} disabled={allSelected} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-40">一括選択</button>
+                <button type="button" onClick={() => onClearAll(items)} className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50">一括解除</button>
+              </>
+            )}
+            <button onClick={onClose} className="rounded-lg px-3 py-1 text-sm font-bold text-gray-500 hover:bg-gray-100">✕</button>
+          </div>
         </div>
         <div className="max-h-[70vh] overflow-auto p-4">
           {items.length === 0 ? (

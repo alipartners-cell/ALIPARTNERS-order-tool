@@ -173,17 +173,27 @@ export default function ProductMaster({ masters, onChange, onBack }: Props) {
   const [editingSku, setEditingSku] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
+  const [statusFilter, setStatusFilter] = useState<"all" | "complete" | "draft">("all");
+  const [bulkLtOpen, setBulkLtOpen] = useState(false);
+  const [bulkLtForm, setBulkLtForm] = useState({
+    factory_lt_days: 5,
+    ap_inspection_lt_days: 3,
+    international_shipping_lt_days: 5,
+    fba_rsl_receiving_lt_days: 3,
+    safety_stock_days: 15,
+  });
 
   const filteredMasters = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return normalizedMasters;
-    return normalizedMasters.filter((item) =>
-      [item.sku, item.jan, item.asin, item.product_name, item.product_url]
+    return normalizedMasters.filter((item) => {
+      if (statusFilter !== "all" && item.master_status !== statusFilter) return false;
+      if (!q) return true;
+      return [item.sku, item.jan, item.asin, item.product_name, item.product_url]
         .join(" ")
         .toLowerCase()
-        .includes(q)
-    );
-  }, [normalizedMasters, query]);
+        .includes(q);
+    });
+  }, [normalizedMasters, query, statusFilter]);
 
   const masterBySku = useMemo(() => {
     const map = new Map<string, ProductMasterItem>();
@@ -281,6 +291,20 @@ export default function ProductMaster({ masters, onChange, onBack }: Props) {
     onChange(normalizedMasters.filter((item) => !selectedSkus.has(item.sku)));
     if (editingSku && selectedSkus.has(editingSku)) resetForm();
     setSelectedSkus(new Set());
+  };
+
+  const applyBulkLtToAll = () => {
+    if (normalizedMasters.length === 0) return;
+    const ok = confirm(`登録済み商品${normalizedMasters.length}件に各工程LTを一括反映しますか？`);
+    if (!ok) return;
+    onChange(normalizedMasters.map((item) => normalizeMaster({
+      ...item,
+      factory_lt_days: bulkLtForm.factory_lt_days,
+      ap_inspection_lt_days: bulkLtForm.ap_inspection_lt_days,
+      international_shipping_lt_days: bulkLtForm.international_shipping_lt_days,
+      fba_rsl_receiving_lt_days: bulkLtForm.fba_rsl_receiving_lt_days,
+      safety_stock_days: bulkLtForm.safety_stock_days,
+    })));
   };
 
   const toggleInspectionItem = (item: InspectionItem) => {
@@ -551,10 +575,50 @@ const rows = normalizedMasters.map((item) => ({
         </div>
       </div>
 
+      <div className="mb-4 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+        <button
+          type="button"
+          onClick={() => setBulkLtOpen((v) => !v)}
+          className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50"
+        >
+          <div>
+            <h3 className="text-sm font-bold text-gray-900">各工程の納期一括設定</h3>
+            <p className="mt-1 text-xs text-gray-500">工場LT・検品LT・国際輸送LT・受領LT・安全LTを登録済み商品へまとめて反映します。</p>
+          </div>
+          <span className="rounded-full bg-gray-100 px-3 py-1 text-[11px] font-bold text-gray-600">{bulkLtOpen ? "閉じる ▲" : "展開 ▼"}</span>
+        </button>
+        {bulkLtOpen && (
+          <div className="border-t border-gray-200 p-4">
+            <div className="grid grid-cols-5 gap-3">
+              <NumberInput label="工場LT（日）" value={bulkLtForm.factory_lt_days} onChange={(v) => setBulkLtForm({ ...bulkLtForm, factory_lt_days: v })} />
+              <NumberInput label="AP検品LT（日）" value={bulkLtForm.ap_inspection_lt_days} onChange={(v) => setBulkLtForm({ ...bulkLtForm, ap_inspection_lt_days: v })} />
+              <NumberInput label="国際輸送LT（日）" value={bulkLtForm.international_shipping_lt_days} onChange={(v) => setBulkLtForm({ ...bulkLtForm, international_shipping_lt_days: v })} />
+              <NumberInput label="FBA/RSL受領LT（日）" value={bulkLtForm.fba_rsl_receiving_lt_days} onChange={(v) => setBulkLtForm({ ...bulkLtForm, fba_rsl_receiving_lt_days: v })} />
+              <NumberInput label="安全LT（日）" value={bulkLtForm.safety_stock_days} onChange={(v) => setBulkLtForm({ ...bulkLtForm, safety_stock_days: v })} />
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={applyBulkLtToAll}
+                disabled={normalizedMasters.length === 0}
+                className="rounded-lg bg-gray-900 px-4 py-2 text-xs font-bold text-white hover:bg-gray-700 disabled:opacity-40"
+              >
+                登録済み商品すべてに反映
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-gray-200 p-4">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <h3 className="text-sm font-bold text-gray-900">登録済み商品</h3>
+            <div className="flex rounded-lg bg-gray-100 p-1">
+              <button type="button" onClick={() => setStatusFilter("all")} className={`rounded-md px-3 py-1.5 text-[11px] font-bold ${statusFilter === "all" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-900"}`}>すべて</button>
+              <button type="button" onClick={() => setStatusFilter("complete")} className={`rounded-md px-3 py-1.5 text-[11px] font-bold ${statusFilter === "complete" ? "bg-white text-emerald-700 shadow-sm" : "text-gray-500 hover:text-gray-900"}`}>登録済み</button>
+              <button type="button" onClick={() => setStatusFilter("draft")} className={`rounded-md px-3 py-1.5 text-[11px] font-bold ${statusFilter === "draft" ? "bg-white text-amber-700 shadow-sm" : "text-gray-500 hover:text-gray-900"}`}>要補完</button>
+            </div>
             {selectedSkus.size > 0 && (
               <button
                 onClick={bulkDeleteSelected}

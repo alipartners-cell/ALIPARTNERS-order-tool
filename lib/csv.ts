@@ -13,7 +13,7 @@ export const INSPECTION_ITEMS = [
 export type InspectionItem = (typeof INSPECTION_ITEMS)[number];
 export type InspectionSelections = Record<string, InspectionItem[]>;
 export type SalesChannel = "amazon" | "rakuten";
-export type CsvDataKind = "inventory" | "sales";
+export type CsvDataKind = "inventory" | "sales" | "rakuten_combined";
 
 const toNumber = (value: unknown): number => {
   if (value === null || value === undefined || value === "") return 0;
@@ -54,7 +54,7 @@ function pick(r: Record<string, unknown>, aliases: string[]): unknown {
 }
 
 const SKU_ALIASES = ["sku", "SKU", "商品SKU", "商品管理番号", "商品番号", "品番", "管理番号", "seller-sku", "出品者SKU"];
-const JAN_ALIASES = ["jan", "JAN", "JANコード", "商品コード", "バーコード", "ASIN/EAN", "EAN"];
+const JAN_ALIASES = ["jan", "JAN", "JANコード", "商品コード", "バーコード", "ASIN/EAN", "EAN", "メーカー品番", "倉庫内商品コード"];
 const ASIN_ALIASES = ["asin", "ASIN", "（子）ASIN", "(子)ASIN", "子ASIN", "child asin", "child-asin"];
 const NAME_ALIASES = ["product_name", "商品名", "品名", "商品タイトル", "タイトル", "name"];
 const STOCK_ALIASES = [
@@ -150,11 +150,102 @@ export async function parseCsvFile(file: File): Promise<{ rows: RawSkuRow[]; err
   });
 }
 
+
+function parseCsvMatrixFile(
+  file: File,
+  encoding: string
+): Promise<{ data: unknown[][]; errors: string[] }> {
+  return new Promise((resolve) => {
+    Papa.parse<unknown[]>(file, {
+      header: false,
+      skipEmptyLines: true,
+      encoding,
+      complete: (result) => {
+        const errors = result.errors.map((e) => `${file.name}: ${e.message}`);
+        resolve({ data: result.data, errors });
+      },
+      error: (error) => resolve({ data: [], errors: [`${file.name}: ${error.message}`] }),
+    });
+  });
+}
+
+function matrixRowsToObjects(matrix: unknown[][], fileName: string): { rows: Record<string, unknown>[]; errors: string[] } {
+  const errors: string[] = [];
+  const headerIndex = matrix.findIndex((row) => {
+    const cells = row.map((v) => clean(v));
+    return cells.includes("店舗内商品コード") && (cells.includes("１日あたり出荷数") || cells.includes("月間出荷数"));
+  });
+
+  if (headerIndex < 0) {
+    return {
+      rows: [],
+      errors: [`${fileName}: 楽天SKU実績レポートのヘッダー行（店舗内商品コード / １日あたり出荷数）を判別できません`],
+    };
+  }
+
+  const headers = matrix[headerIndex].map((v) => clean(v));
+  const rows: Record<string, unknown>[] = [];
+
+  matrix.slice(headerIndex + 1).forEach((row) => {
+    const obj: Record<string, unknown> = {};
+    headers.forEach((header, idx) => {
+      if (header) obj[header] = row[idx];
+    });
+    const hasAnyValue = Object.values(obj).some((value) => clean(value) !== "");
+    if (hasAnyValue) rows.push(obj);
+  });
+
+  return { rows, errors };
+}
+
+async function parseRakutenCombinedCsvFile(file: File): Promise<{ rows: Partial<RawSkuRow>[]; errors: string[] }> {
+  const matrixResult = await parseCsvMatrixFile(file, "shift-jis");
+  const objectResult = matrixRowsToObjects(matrixResult.data, file.name);
+  const errors: string[] = [...matrixResult.errors, ...objectResult.errors];
+  const rows: Partial<RawSkuRow>[] = [];
+
+  objectResult.rows.forEach((r, index) => {
+    // 楽天SKU実績レポートは、Amazon/RakutenのSKU差異を吸収するためJANを主キーにする。
+    // JANは「メーカー品番」が最も安定。Excel等で指数表記になった場合は cleanJan で可能な範囲で復元する。
+    const jan = cleanJan(r["メーカー品番"] ?? r["JANコード"] ?? r["倉庫内商品コード"] ?? pick(r, JAN_ALIASES));
+    if (!jan) {
+      errors.push(`${file.name} ${index + 1}行目: JANを判別できません`);
+      return;
+    }
+
+    const dailyShipments = toNumber(r["１日あたり出荷数"]);
+    const monthlyShipments = toNumber(r["月間出荷数"]);
+    const rakutenMonthlySales = dailyShipments > 0 ? dailyShipments * 30 : monthlyShipments;
+    const rslStock = toNumber(r["当月末在庫数"] ?? r["現在庫"] ?? r["在庫数"]);
+    const rslInbound = toNumber(r["月間入荷数"]);
+
+    rows.push({
+      // SKUは表示補助。統合キーにはしない。page.tsx側でJAN一致の既存マスタSKUへ寄せる。
+      sku: clean(r["店舗内商品コード"] ?? pick(r, SKU_ALIASES)) || jan,
+      jan,
+      product_name: clean(r["商品名１"] ?? pick(r, NAME_ALIASES)),
+      monthly_sales: rakutenMonthlySales,
+      rakuten_monthly_sales: rakutenMonthlySales,
+      rakuten_stock: rslStock,
+      rsl_stock: rslStock,
+      rsl_inbound_plan: rslInbound,
+    });
+  });
+
+  return { rows, errors };
+}
+
 export async function parseChannelCsvFile(
   file: File,
   channel: SalesChannel,
   kind: CsvDataKind
 ): Promise<{ rows: Partial<RawSkuRow>[]; errors: string[] }> {
+  // 楽天SKU実績レポート（月次）は「売上＋在庫」が1ファイルに入っているため、
+  // UIの選択が inventory/sales のどちらでも楽天専用パーサで処理する。
+  if (channel === "rakuten" || kind === "rakuten_combined") {
+    return parseRakutenCombinedCsvFile(file);
+  }
+
   return new Promise((resolve) => {
     Papa.parse<Record<string, unknown>>(file, {
       header: true,
@@ -192,20 +283,13 @@ export async function parseChannelCsvFile(
               ) ||
               toNumber(pick(r, INBOUND_ALIASES));
 
-            if (channel === "amazon") {
-              base.amazon_stock = stock;
-              base.fba_stock = stock;
-              base.fba_inbound_plan = inbound;
-              base.inbound = inbound;
-            } else {
-              base.rakuten_stock = stock;
-              base.rsl_stock = stock;
-              base.rsl_inbound_plan = inbound;
-            }
+            base.amazon_stock = stock;
+            base.fba_stock = stock;
+            base.fba_inbound_plan = inbound;
+            base.inbound = inbound;
           } else {
             const monthly = toNumber(pick(r, SALES_ALIASES));
-            if (channel === "amazon") base.amazon_monthly_sales = monthly;
-            if (channel === "rakuten") base.rakuten_monthly_sales = monthly;
+            base.amazon_monthly_sales = monthly;
           }
           rows.push(base);
         });

@@ -138,6 +138,95 @@ function DetailPill({
   );
 }
 
+
+function MetricLine({ label, value, unit = "" }: { label: string; value: number | string; unit?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-white/70 px-2.5 py-1.5">
+      <span className="text-[11px] font-bold text-gray-400">{label}</span>
+      <span className="text-[12px] font-black text-gray-800 tabular-nums">{value}{unit}</span>
+    </div>
+  );
+}
+
+function ChannelSummaryCard({
+  title,
+  tone,
+  monthlySales,
+  dailySales,
+  stock,
+  inbound,
+  required,
+  recommended,
+  unitLabel,
+}: {
+  title: string;
+  tone: "amazon" | "rakuten";
+  monthlySales: number;
+  dailySales: number;
+  stock: number;
+  inbound: number;
+  required: number;
+  recommended: number;
+  unitLabel: string;
+}) {
+  const titleClass = tone === "amazon" ? "text-gray-700" : "text-gray-700";
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-gray-50/70 p-3 text-gray-700">
+      <div className="mb-2 flex items-center justify-between">
+        <div className={`text-sm font-black ${titleClass}`}>{title}</div>
+        <div className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-black text-gray-500">
+          必要 {smallNum(required)}{unitLabel}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3 xl:grid-cols-6">
+        <MetricLine label="月販" value={smallNum(monthlySales)} unit={unitLabel} />
+        <MetricLine label="日販" value={smallNum(dailySales)} unit={`${unitLabel}/日`} />
+        <MetricLine label="在庫" value={smallNum(stock)} unit={unitLabel} />
+        <MetricLine label="納品見込み" value={smallNum(inbound)} unit={unitLabel} />
+        <MetricLine label="必要" value={smallNum(required)} unit={unitLabel} />
+        <MetricLine label="納品推奨" value={smallNum(recommended)} unit={unitLabel} />
+      </div>
+    </div>
+  );
+}
+
+function OrderReasonSummary({
+  requiredTotalSet,
+  availableTotalSet,
+  shortageSet,
+  unitPerSet,
+  orderQtyBara,
+  totalLeadTimeDays,
+}: {
+  requiredTotalSet: number;
+  availableTotalSet: number;
+  shortageSet: number;
+  unitPerSet: number;
+  orderQtyBara: number;
+  totalLeadTimeDays: number;
+}) {
+  const isSetProduct = unitPerSet > 1;
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-gray-50/70 px-3 py-2 text-gray-700">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-black text-gray-700">
+        <span>計算根拠</span>
+        <span className="text-gray-300">|</span>
+        <span>必要 {smallNum(requiredTotalSet)}セット</span>
+        <span>−</span>
+        <span>有効在庫 {smallNum(availableTotalSet)}セット</span>
+        <span>=</span>
+        <span>不足 {smallNum(shortageSet)}セット</span>
+        <span>→</span>
+        <span>中国発注 {smallNum(orderQtyBara)}個</span>
+      </div>
+      <div className="mt-1 text-[10px] font-bold text-gray-500">
+        必要数は「Amazon日販＋楽天日販」× 総LT{smallNum(totalLeadTimeDays)}日。{isSetProduct ? `発注数は不足セット数×${unitPerSet}個/セットでバラ換算。` : "発注数は不足数をバラ数として表示。"}
+      </div>
+    </div>
+  );
+}
+
 export default function OrderTable({
   rows,
   selected,
@@ -180,7 +269,7 @@ export default function OrderTable({
 
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-4">
-      <div className="mb-3 flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
         <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
           <input
             type="checkbox"
@@ -192,7 +281,26 @@ export default function OrderTable({
           />
           表示中の商品を選択
         </label>
-        <div className="text-xs text-gray-500">必要在庫は日販×総LTで自動計算します。</div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setExpanded(new Set(visibleSkus))}
+            disabled={visibleSkus.length === 0}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            すべて詳細を表示
+          </button>
+          <button
+            type="button"
+            onClick={() => setExpanded(new Set())}
+            disabled={expanded.size === 0}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            すべて閉じる
+          </button>
+          <div className="text-xs text-gray-500">必要在庫は日販×総LTで自動計算します。</div>
+        </div>
       </div>
 
       {visibleRows.length === 0 ? (
@@ -202,11 +310,9 @@ export default function OrderTable({
           {visibleRows.map((row) => {
             const master = productMasters[row.sku];
             const unitPerSet = getUnitPerSet(row, master);
-            const isSetProduct = unitPerSet > 1;
             const deliveryUnitLabel = deliveryUnit(unitPerSet);
             const deliverySubLabel = setDescription(unitPerSet);
             const chinaOrderQtyBara = Math.max(0, Number(row.recommended_order_qty || 0));
-            const shortageQtyBara = toBaraQty(row.shortage_qty, unitPerSet);
             const isExpanded = expanded.has(row.sku);
             return (
               <div key={row.sku} className={`rounded-2xl border bg-white p-4 shadow-sm ${selected.has(row.sku) ? "border-indigo-300 ring-2 ring-indigo-100" : "border-gray-200"}`}>
@@ -239,29 +345,45 @@ export default function OrderTable({
                   <StatusStack row={row} />
                 </div>
 
-                <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
-                  <DetailPill label="FBA在庫" value={row.amazon_stock.toLocaleString()} unit={` ${deliveryUnitLabel}`} />
-                  <DetailPill label="FBA納品見込み" value={row.fba_inbound_plan.toLocaleString()} unit={` ${deliveryUnitLabel}`} />
-                  <DetailPill label="Amazon日販" value={smallNum(row.amazon_daily_sales)} unit={` ${deliveryUnitLabel}/日`} />
-                  <DetailPill label="FBA必要" value={row.fba_required_stock.toLocaleString()} unit={` ${deliveryUnitLabel}`} />
-                  <DetailPill label="楽天在庫" value={row.rakuten_stock.toLocaleString()} unit={` ${deliveryUnitLabel}`} />
-                  <DetailPill label="RSL納品見込み" value={row.rsl_inbound_plan.toLocaleString()} unit={` ${deliveryUnitLabel}`} />
-                  <DetailPill label="楽天日販" value={smallNum(row.rakuten_daily_sales)} unit={` ${deliveryUnitLabel}/日`} />
-                  <DetailPill label="RSL必要" value={row.rsl_required_stock.toLocaleString()} unit={` ${deliveryUnitLabel}`} />
-                </div>
 
                 {isExpanded && (
                   <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 p-3">
-                    <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 md:grid-cols-4 xl:grid-cols-8">
-                      <DetailPill label="Amazon月販" value={row.amazon_monthly_sales.toLocaleString()} unit={` ${deliveryUnitLabel}`} />
-                      <DetailPill label="楽天月販" value={row.rakuten_monthly_sales.toLocaleString()} unit={` ${deliveryUnitLabel}`} />
-                      <DetailPill label="AP在庫" value={row.ap_stock.toLocaleString()} unit=" 個（バラ）" subLabel={setEquivalent(row.ap_stock, unitPerSet)} />
-                      <DetailPill label="全体必要" value={row.required_stock.toLocaleString()} unit={` ${deliveryUnitLabel}`} />
-                      <DetailPill label="不足数" value={shortageQtyBara.toLocaleString()} unit=" 個（バラ）" subLabel={isSetProduct ? `${row.shortage_qty.toLocaleString()}セット相当` : ""} />
-                      <DetailPill label="セット数" value={unitPerSet.toLocaleString()} unit={isSetProduct ? "個/セット" : "個"} />
-                      <DetailPill label="総LT" value={row.total_lead_time_days} unit="日" />
-                      <DetailPill label="発注単位" value={Number(row.order_unit || 0).toLocaleString()} unit="個（バラ）" />
-                    </div>
+  
+                  <div className="mb-3 grid grid-cols-1 gap-2 xl:grid-cols-2">
+                    <ChannelSummaryCard
+                      title="Amazon / FBA"
+                      tone="amazon"
+                      monthlySales={row.amazon_monthly_sales}
+                      dailySales={row.amazon_daily_sales}
+                      stock={row.amazon_stock}
+                      inbound={row.fba_inbound_plan}
+                      required={row.fba_required_stock}
+                      recommended={row.fba_recommended_delivery_qty}
+                      unitLabel={deliveryUnitLabel}
+                    />
+                    <ChannelSummaryCard
+                      title="楽天 / RSL"
+                      tone="rakuten"
+                      monthlySales={row.rakuten_monthly_sales}
+                      dailySales={row.rakuten_daily_sales}
+                      stock={row.rakuten_stock}
+                      inbound={row.rsl_inbound_plan}
+                      required={row.rsl_required_stock}
+                      recommended={row.rsl_recommended_delivery_qty}
+                      unitLabel={deliveryUnitLabel}
+                    />
+                  </div>
+
+                  <div className="mb-3">
+                    <OrderReasonSummary
+                      requiredTotalSet={row.fba_required_stock + row.rsl_required_stock}
+                      availableTotalSet={row.amazon_stock + row.rakuten_stock + row.fba_inbound_plan + row.rsl_inbound_plan + Math.floor(Number(row.ap_stock || 0) / unitPerSet)}
+                      shortageSet={row.shortage_qty}
+                      unitPerSet={unitPerSet}
+                      orderQtyBara={chinaOrderQtyBara}
+                      totalLeadTimeDays={row.total_lead_time_days}
+                    />
+                  </div>
                   </div>
                 )}
 

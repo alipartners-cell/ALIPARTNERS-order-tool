@@ -53,8 +53,8 @@ const EMPTY_CSV_LOAD_STATUS: CsvLoadStatus = {
 function getCsvStatusLabel(channel: SalesChannel, kind: CsvDataKind) {
   if (channel === "amazon" && kind === "sales") return "Amazon売上";
   if (channel === "amazon" && kind === "inventory") return "FBA在庫";
-  if (channel === "rakuten" && kind === "sales") return "楽天売上";
-  return "RSL在庫";
+  if (channel === "rakuten") return "楽天CSV（売上＋在庫）";
+  return "CSV";
 }
 
 type ApStockSheetItem = {
@@ -173,6 +173,115 @@ function getUnitPerSetFromMaster(master?: ProductMasterItem) {
   return Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 1;
 }
 
+
+function normalizeSkuKey(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function normalizeJanKey(value: unknown) {
+  return String(value ?? "").replace(/\D/g, "").trim();
+}
+
+function mergeRawSkuRow(current: RawSkuRow | undefined, incoming: Partial<RawSkuRow>, canonicalSku: string, canonicalJan: string): RawSkuRow {
+  const base: RawSkuRow = current ?? {
+    sku: canonicalSku,
+    jan: canonicalJan,
+    product_name: "",
+    monthly_sales: 0,
+    fba_stock: 0,
+    rsl_stock: 0,
+    ap_stock: 0,
+    inbound: 0,
+    amazon_monthly_sales: 0,
+    rakuten_monthly_sales: 0,
+    amazon_stock: 0,
+    rakuten_stock: 0,
+    fba_inbound_plan: 0,
+    rsl_inbound_plan: 0,
+    fba_required_stock: 0,
+    rsl_required_stock: 0,
+    moq: 0,
+    order_unit: 0,
+  };
+
+  const amazonMonthlySales = Number(incoming.amazon_monthly_sales ?? base.amazon_monthly_sales ?? 0) || 0;
+  const rakutenMonthlySales = Number(incoming.rakuten_monthly_sales ?? base.rakuten_monthly_sales ?? 0) || 0;
+  const explicitMonthlySales = Number(incoming.monthly_sales ?? base.monthly_sales ?? 0) || 0;
+  const monthlySales = amazonMonthlySales + rakutenMonthlySales > 0
+    ? amazonMonthlySales + rakutenMonthlySales
+    : explicitMonthlySales;
+
+  return {
+    ...base,
+    ...incoming,
+    // 表示・計算用の主キーは商品マスタ側SKUに寄せる。
+    // ただしAmazon SKUと楽天SKUが別でも、JAN一致なら同一商品としてこの行に統合する。
+    sku: canonicalSku,
+    jan: canonicalJan || String(incoming.jan ?? base.jan ?? ""),
+    product_name: String(incoming.product_name || base.product_name || ""),
+    monthly_sales: monthlySales,
+    amazon_monthly_sales: amazonMonthlySales,
+    rakuten_monthly_sales: rakutenMonthlySales,
+    fba_stock: Number(incoming.fba_stock ?? base.fba_stock ?? 0) || 0,
+    rsl_stock: Number(incoming.rsl_stock ?? base.rsl_stock ?? 0) || 0,
+    amazon_stock: Number(incoming.amazon_stock ?? base.amazon_stock ?? 0) || 0,
+    rakuten_stock: Number(incoming.rakuten_stock ?? base.rakuten_stock ?? 0) || 0,
+    ap_stock: Number(incoming.ap_stock ?? base.ap_stock ?? 0) || 0,
+    inbound: Number(incoming.inbound ?? base.inbound ?? 0) || 0,
+    fba_inbound_plan: Number(incoming.fba_inbound_plan ?? base.fba_inbound_plan ?? 0) || 0,
+    rsl_inbound_plan: Number(incoming.rsl_inbound_plan ?? base.rsl_inbound_plan ?? 0) || 0,
+    moq: Number(incoming.moq ?? base.moq ?? 0) || 0,
+    order_unit: Number(incoming.order_unit ?? base.order_unit ?? 0) || 0,
+  };
+}
+
+function getMasterForCsvRow(
+  row: Partial<RawSkuRow>,
+  productMasterBySku: Record<string, ProductMasterItem>,
+  productMasterByJan: Record<string, ProductMasterItem>
+) {
+  const sku = normalizeSkuKey(row.sku);
+  const jan = normalizeJanKey(row.jan);
+  return productMasterBySku[sku] || (jan ? productMasterByJan[jan] : undefined);
+}
+
+function getCanonicalKeyForCsvRow(
+  row: Partial<RawSkuRow>,
+  productMasterBySku: Record<string, ProductMasterItem>,
+  productMasterByJan: Record<string, ProductMasterItem>
+) {
+  const master = getMasterForCsvRow(row, productMasterBySku, productMasterByJan);
+  const normalizedJan = normalizeJanKey(row.jan || master?.jan);
+
+  return {
+    master,
+    sku: master?.sku || normalizeSkuKey(row.sku),
+    jan: normalizedJan || String(row.jan ?? master?.jan ?? ""),
+    key: normalizedJan || master?.sku || normalizeSkuKey(row.sku),
+  };
+}
+
+function canonicalizeCsvRowsByJan(
+  rows: RawSkuRow[],
+  productMasterBySku: Record<string, ProductMasterItem>,
+  productMasterByJan: Record<string, ProductMasterItem>
+): RawSkuRow[] {
+  const merged = new Map<string, RawSkuRow>();
+
+  rows.forEach((row) => {
+    const canonical = getCanonicalKeyForCsvRow(row, productMasterBySku, productMasterByJan);
+    if (!canonical.sku) return;
+
+    const current = merged.get(canonical.key);
+    merged.set(
+      canonical.key,
+      mergeRawSkuRow(current, row, canonical.sku, canonical.jan)
+    );
+  });
+
+  return Array.from(merged.values());
+}
+
 function adjustRowsForSetUnits(rows: ComputedSkuRow[], productMasterBySku: Record<string, ProductMasterItem>): ComputedSkuRow[] {
   return rows.map((row) => {
     const master = productMasterBySku[row.sku];
@@ -225,6 +334,7 @@ export default function HomePage() {
   const [apStockUpdating, setApStockUpdating] = useState(false);
   const [apStockItems, setApStockItems] = useState<ApStockSheetItem[]>([]);
   const [viewMode, setViewMode] = useState<"table" | "calendar" | "master" | "apStock">("table");
+  const [masterFocusSku, setMasterFocusSku] = useState("");
   const [productMasters, setProductMasters] = useState<ProductMasterItem[]>([]);
   const [mastersLoaded, setMastersLoaded] = useState(false);
   const [inspectionModalOpen, setInspectionModalOpen] = useState(false);
@@ -302,20 +412,39 @@ export default function HomePage() {
     const map: Record<string, ProductMasterItem> = {};
     productMasters.forEach((item) => {
       const normalized = normalizeProductMaster(item);
-      if (normalized.sku) map[normalized.sku] = normalized;
+      if (normalized.sku) map[normalizeSkuKey(normalized.sku)] = normalized;
+    });
+    return map;
+  }, [productMasters]);
+
+  const productMasterByJan = useMemo(() => {
+    const map: Record<string, ProductMasterItem> = {};
+    productMasters.forEach((item) => {
+      const normalized = normalizeProductMaster(item);
+      const jan = normalizeJanKey(normalized.jan);
+      if (jan && !map[jan]) map[jan] = normalized;
     });
     return map;
   }, [productMasters]);
 
   const csvRowBySku = useMemo(() => {
     const map = new Map<string, RawSkuRow>();
-    csvRows.forEach((row) => map.set(row.sku, toRawRow(row)));
+    csvRows.forEach((row) => map.set(normalizeSkuKey(row.sku), toRawRow(row)));
+    return map;
+  }, [csvRows]);
+
+  const csvRowByJan = useMemo(() => {
+    const map = new Map<string, RawSkuRow>();
+    csvRows.forEach((row) => {
+      const jan = normalizeJanKey(row.jan);
+      if (jan) map.set(jan, toRawRow(row));
+    });
     return map;
   }, [csvRows]);
 
   const rows = useMemo(() => {
     const baseRows: RawSkuRow[] = productMasters.map((master) => {
-      const csv = csvRowBySku.get(master.sku);
+      const csv = csvRowBySku.get(normalizeSkuKey(master.sku)) || csvRowByJan.get(normalizeJanKey(master.jan));
       return {
         sku: master.sku,
         jan: master.jan || csv?.jan || "",
@@ -348,7 +477,7 @@ export default function HomePage() {
     });
 
     return adjustRowsForSetUnits(computeAllRows(baseRows, appliedParams), productMasterBySku);
-  }, [productMasters, csvRowBySku, appliedParams, productMasterBySku]);
+  }, [productMasters, csvRowBySku, csvRowByJan, appliedParams, productMasterBySku]);
 
   const csvMatchedCount = useMemo(() => {
     return csvRows.filter((row) => productMasterBySku[row.sku]).length;
@@ -364,7 +493,8 @@ export default function HomePage() {
       setLoading(true);
       setErrors([]);
       setFilename(file.name);
-      const { rows: parsed, errors: errs } = await parseCsvFile(file);
+      const { rows: parsedRaw, errors: errs } = await parseCsvFile(file);
+      const parsed = canonicalizeCsvRowsByJan(parsedRaw, productMasterBySku, productMasterByJan);
       setErrors(errs);
       setCsvRows(adjustRowsForSetUnits(computeAllRows(parsed, appliedParams), productMasterBySku));
       setCsvLoadStatus((prev) => ({
@@ -421,7 +551,7 @@ export default function HomePage() {
 
       setLoading(false);
     },
-    [appliedParams]
+    [appliedParams, productMasterBySku, productMasterByJan]
   );
 
   const handleApplyChannelFiles = useCallback(
@@ -431,10 +561,17 @@ export default function HomePage() {
       setErrors([]);
       setFilename(items.map((item) => item.file.name).join(" / "));
 
+      // ここがJAN統合の中核。
+      // 既存行も「SKU」ではなく「JAN優先キー」で持ち直すことで、
+      // Amazon SKU と 楽天 SKU が違っても同一JANなら1行に統合する。
       const merged = new Map<string, RawSkuRow>();
-      csvRows.forEach((row) => merged.set(row.sku, toRawRow(row)));
+      canonicalizeCsvRowsByJan(csvRows.map(toRawRow), productMasterBySku, productMasterByJan).forEach((row) => {
+        const canonical = getCanonicalKeyForCsvRow(row, productMasterBySku, productMasterByJan);
+        if (canonical.key) merged.set(canonical.key, row);
+      });
+
       const nextErrors: string[] = [];
-      const touchedSkus = new Set<string>();
+      const touchedKeys = new Set<string>();
 
       const loadedCounts: Partial<Record<"amazonSales" | "fbaInventory" | "rakutenSales" | "rslInventory", number>> = {};
 
@@ -442,51 +579,32 @@ export default function HomePage() {
         const parsed = await parseChannelCsvFile(item.file, item.channel, item.kind);
         nextErrors.push(...parsed.errors);
 
-        const statusKey =
-          item.channel === "amazon" && item.kind === "sales"
-            ? "amazonSales"
-            : item.channel === "amazon" && item.kind === "inventory"
-              ? "fbaInventory"
-              : item.channel === "rakuten" && item.kind === "sales"
-                ? "rakutenSales"
-                : "rslInventory";
-
-        loadedCounts[statusKey] = (loadedCounts[statusKey] ?? 0) + parsed.rows.length;
+        if (item.channel === "rakuten") {
+          loadedCounts.rakutenSales = (loadedCounts.rakutenSales ?? 0) + parsed.rows.length;
+          loadedCounts.rslInventory = (loadedCounts.rslInventory ?? 0) + parsed.rows.length;
+        } else {
+          const statusKey = item.kind === "sales" ? "amazonSales" : "fbaInventory";
+          loadedCounts[statusKey] = (loadedCounts[statusKey] ?? 0) + parsed.rows.length;
+        }
 
         parsed.rows.forEach((partial) => {
-          if (!partial.sku) return;
-          touchedSkus.add(partial.sku);
-          const current = merged.get(partial.sku) ?? {
-            sku: partial.sku,
-            jan: "",
-            product_name: "",
-            monthly_sales: 0,
-            fba_stock: 0,
-            rsl_stock: 0,
-            ap_stock: 0,
-            inbound: 0,
-            amazon_monthly_sales: 0,
-            rakuten_monthly_sales: 0,
-            amazon_stock: 0,
-            rakuten_stock: 0,
-            fba_inbound_plan: 0,
-            rsl_inbound_plan: 0,
-            fba_required_stock: 0,
-            rsl_required_stock: 0,
-            moq: 0,
-            order_unit: 0,
-          };
-          merged.set(partial.sku, {
-            ...current,
-            ...partial,
-            jan: partial.jan || current.jan,
-            product_name: partial.product_name || current.product_name,
-          });
+          if (!partial.sku && !partial.jan) return;
+
+          const canonical = getCanonicalKeyForCsvRow(partial, productMasterBySku, productMasterByJan);
+          if (!canonical.key || !canonical.sku) return;
+
+          touchedKeys.add(canonical.key);
+
+          const current = merged.get(canonical.key);
+          merged.set(
+            canonical.key,
+            mergeRawSkuRow(current, partial, canonical.sku, canonical.jan)
+          );
         });
       }
 
       const nextRows = Array.from(merged.values());
-      setCsvRows(computeAllRows(nextRows, appliedParams));
+      setCsvRows(adjustRowsForSetUnits(computeAllRows(nextRows, appliedParams), productMasterBySku));
       setErrors(nextErrors);
       setCsvLoadStatus((prev) => ({
         amazonSales: loadedCounts.amazonSales ?? prev.amazonSales,
@@ -499,17 +617,20 @@ export default function HomePage() {
       setSelected(new Set());
 
       setProductMasters((prev) => {
-        const nextBySku = new Map(prev.map((item) => [item.sku, normalizeProductMaster(item)]));
+        const nextBySku = new Map(prev.map((item) => [normalizeSkuKey(item.sku), normalizeProductMaster(item)]));
         let newCount = 0;
+
         nextRows.forEach((row) => {
-          if (!touchedSkus.has(row.sku)) return;
-          const existing = nextBySku.get(row.sku);
+          const canonical = getCanonicalKeyForCsvRow(row, productMasterBySku, productMasterByJan);
+          if (!touchedKeys.has(canonical.key)) return;
+
+          const existing = nextBySku.get(normalizeSkuKey(row.sku));
           if (!existing) {
-            nextBySku.set(row.sku, makeDraftMasterFromCsv(row));
+            nextBySku.set(normalizeSkuKey(row.sku), makeDraftMasterFromCsv(row));
             newCount += 1;
           } else if (existing.master_status === "draft") {
             nextBySku.set(
-              row.sku,
+              normalizeSkuKey(row.sku),
               normalizeProductMaster({
                 ...existing,
                 jan: existing.jan || row.jan,
@@ -519,19 +640,20 @@ export default function HomePage() {
             );
           }
         });
+
         if (newCount > 0) {
           setMasterNotice(
             `新規SKUが${newCount}件見つかったため、商品マスタに仮登録しました。商品画像・1688URL・色・サイズ・仕入単価・備考を補完してください。`
           );
         } else {
-          setMasterNotice(`CSV ${items.length}ファイルを反映しました。`);
+          setMasterNotice(`CSV ${items.length}ファイルを反映しました。JANが一致するAmazon/楽天データは同一商品として統合しています。`);
         }
         return Array.from(nextBySku.values()).sort((a, b) => a.sku.localeCompare(b.sku));
       });
 
       setLoading(false);
     },
-    [csvRows, appliedParams]
+    [csvRows, appliedParams, productMasterBySku, productMasterByJan]
   );
 
   const handleToggle = (sku: string) => {
@@ -756,7 +878,7 @@ export default function HomePage() {
       });
 
       alert(
-        `AP在庫に更新しました\n更新：${updated}件\nJAN未入力：${noJan}件\nJAN一致なし：${unmatched}件`
+        `AP在庫を更新しました\n更新：${updated}件\nJAN未入力：${noJan}件\nJAN一致なし：${unmatched}件`
       );
     } catch (error) {
       alert(error instanceof Error ? error.message : "AP在庫の更新に失敗しました");
@@ -773,8 +895,13 @@ export default function HomePage() {
 
   const showWorkspace = productMasters.length > 0 || csvRows.length > 0;
 
+  const openProductMasterForSku = (sku: string) => {
+    setMasterFocusSku(sku);
+    setViewMode("master");
+  };
+
   return (
-    <div className="flex min-h-screen flex-col overflow-hidden bg-white text-gray-900">
+    <div className="flex h-screen flex-col overflow-hidden bg-white text-gray-900">
       <header className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
         <div className="flex items-center gap-3">
           <button
@@ -809,12 +936,13 @@ export default function HomePage() {
 
       <TopTabs viewMode={viewMode} onChange={setViewMode} />
 
-      <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
+      <main className="flex min-h-0 flex-1 flex-col overflow-auto bg-white">
         {viewMode === "master" ? (
           <ProductMaster
             masters={productMasters.map(normalizeProductMaster)}
             onChange={setProductMasters}
             onBack={() => setViewMode("table")}
+            focusSku={masterFocusSku}
           />
         ) : !showWorkspace ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-6 p-8">
@@ -865,78 +993,80 @@ export default function HomePage() {
                 )}
               </div>
 
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 whitespace-nowrap">
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={filterOrderOnly}
-                    onClick={() => setFilterOrderOnly((v) => !v)}
-                    className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
-                      filterOrderOnly ? "bg-indigo-600" : "bg-gray-300"
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                        filterOrderOnly ? "translate-x-4" : "translate-x-0.5"
+              {viewMode === "table" && (
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={filterOrderOnly}
+                      onClick={() => setFilterOrderOnly((v) => !v)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
+                        filterOrderOnly ? "bg-indigo-600" : "bg-gray-300"
                       }`}
-                    />
-                  </button>
-                  <span className="text-xs font-medium leading-none text-gray-600">
-                    発注推奨のみ
-                  </span>
-                </div>
+                    >
+                      <span
+                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                          filterOrderOnly ? "translate-x-4" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                    <span className="text-xs font-medium leading-none text-gray-600">
+                      発注推奨のみ
+                    </span>
+                  </div>
 
-                <div className="flex items-center gap-2 whitespace-nowrap">
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={filterDeliveryOnly}
-                    onClick={() => setFilterDeliveryOnly((v) => !v)}
-                    className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
-                      filterDeliveryOnly ? "bg-emerald-600" : "bg-gray-300"
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                        filterDeliveryOnly ? "translate-x-4" : "translate-x-0.5"
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={filterDeliveryOnly}
+                      onClick={() => setFilterDeliveryOnly((v) => !v)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
+                        filterDeliveryOnly ? "bg-emerald-600" : "bg-gray-300"
                       }`}
-                    />
+                    >
+                      <span
+                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                          filterDeliveryOnly ? "translate-x-4" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                    <span className="text-xs font-medium leading-none text-gray-600">
+                      納品推奨のみ
+                    </span>
+                  </div>
+
+                  {selected.size > 0 && (
+                    <span className="text-xs font-semibold text-indigo-600">
+                      {selected.size}件選択中
+                    </span>
+                  )}
+
+                  <button
+                    onClick={handleUpdateApStock}
+                    disabled={apStockUpdating}
+                    className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-bold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {apStockUpdating ? "在庫更新中…" : "AP在庫を更新"}
                   </button>
-                  <span className="text-xs font-medium leading-none text-gray-600">
-                    納品推奨のみ
-                  </span>
+
+                  <button
+                    onClick={handleSpreadsheet}
+                    className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+                  >
+                    スプレッドシート発注表作成
+                  </button>
+
+                  <button
+                    onClick={handleDownload}
+                    disabled={selected.size === 0}
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    ↓ 発注CSVダウンロード
+                  </button>
                 </div>
-
-                {selected.size > 0 && (
-                  <span className="text-xs font-semibold text-indigo-600">
-                    {selected.size}件選択中
-                  </span>
-                )}
-
-                <button
-                  onClick={handleUpdateApStock}
-                  disabled={apStockUpdating}
-                  className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-bold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {apStockUpdating ? "在庫更新中…" : "AP在庫に更新"}
-                </button>
-
-                <button
-                  onClick={handleSpreadsheet}
-                  className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
-                >
-                  スプレッドシート発注表作成
-                </button>
-
-                <button
-                  onClick={handleDownload}
-                  disabled={selected.size === 0}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  ↓ 発注CSVダウンロード
-                </button>
-              </div>
+              )}
             </div>
 
             {masterNotice && (
@@ -972,6 +1102,7 @@ export default function HomePage() {
                 params={appliedParams}
                 productMasters={productMasterBySku}
                 inspectionSelections={inspectionSelections}
+                onOpenMaster={openProductMasterForSku}
               />
             ) : viewMode === "apStock" ? (
               <ApStockView
@@ -986,6 +1117,7 @@ export default function HomePage() {
                 rows={rows}
                 selected={selected}
                 onToggle={handleToggle}
+                onDownloadOrderCsv={handleDownload}
                 filterOrderOnly={filterOrderOnly}
                 productMasters={productMasterBySku}
                 inspectionSelections={inspectionSelections}
@@ -1071,7 +1203,11 @@ function CsvImportStrip({
         id: `${file.name}-${file.size}-${file.lastModified}-${Math.random()}`,
         file,
         channel: file.name.toLowerCase().includes("rakuten") || file.name.includes("楽天") ? "rakuten" : "amazon",
-        kind: file.name.includes("売上") || file.name.toLowerCase().includes("sales") ? "sales" : "inventory",
+        kind: file.name.toLowerCase().includes("rakuten") || file.name.includes("楽天")
+          ? "rakuten_combined"
+          : file.name.includes("売上") || file.name.toLowerCase().includes("sales")
+            ? "sales"
+            : "inventory",
       } as { id: string; file: File; channel: SalesChannel; kind: CsvDataKind })),
     ]);
   };
@@ -1106,7 +1242,7 @@ function CsvImportStrip({
           <div>
             <p className="text-sm font-bold text-gray-800">CSVをまとめてドラッグ＆ドロップ</p>
             <p className="mt-1 text-xs text-gray-500">
-              ファイルごとに「販路」と「種類」を選び、SKUで一覧へ反映します。Amazon/FBA・楽天/RSLの在庫/売上CSVを同時投入できます。
+              Amazon/FBAは「売上」「在庫」を選択。楽天/RSLは「売上＋在庫」を選択してください。JANで一覧へ統合します。
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -1134,15 +1270,25 @@ function CsvImportStrip({
             {items.map((item) => (
               <div key={item.id} className="grid grid-cols-[1fr_140px_120px_40px] items-center gap-2 rounded-lg bg-gray-50 px-3 py-2">
                 <span className="truncate text-xs font-mono text-gray-600">{item.file.name}</span>
-                <select value={item.channel} onChange={(e) => setItems((prev) => prev.map((v) => v.id === item.id ? { ...v, channel: e.target.value as SalesChannel } : v))} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-700">
+                <select value={item.channel} onChange={(e) => setItems((prev) => prev.map((v) => {
+                  if (v.id !== item.id) return v;
+                  const nextChannel = e.target.value as SalesChannel;
+                  return { ...v, channel: nextChannel, kind: nextChannel === "rakuten" ? "rakuten_combined" : "inventory" };
+                }))} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-700">
                   <option value="amazon">Amazon/FBA</option>
                   <option value="rakuten">楽天/RSL</option>
                 </select>
                 <select value={item.kind} onChange={(e) => setItems((prev) => prev.map((v) => v.id === item.id ? { ...v, kind: e.target.value as CsvDataKind } : v))} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-700">
-                  <option value="inventory">在庫</option>
-                  <option value="sales">売上</option>
+                  {item.channel === "rakuten" ? (
+                    <option value="rakuten_combined">売上＋在庫</option>
+                  ) : (
+                    <>
+                      <option value="inventory">在庫</option>
+                      <option value="sales">売上</option>
+                    </>
+                  )}
                 </select>
-                <button onClick={() => setItems((prev) => prev.filter((v) => v.id !== item.id))} className="rounded-lg px-2 py-1 text-xs font-bold text-gray-400 hover:bg-gray-200 hover:text-gray-700">×</button>
+                <button onClick={() => setItems((prev) => prev.filter((v) => v.id !== item.id))} className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-black text-gray-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600" title="このCSVを削除">×</button>
               </div>
             ))}
           </div>
@@ -1282,20 +1428,20 @@ function ApStockView({
   const fmt = (value: number) => Number(value || 0).toLocaleString();
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-4">
+    <div className="flex-1 overflow-auto bg-gray-50 p-4">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
         <div>
           <h2 className="text-base font-black text-gray-900">AP在庫</h2>
           <p className="mt-1 text-xs text-gray-500">FBA/RSLへの推奨納品数に対してAP在庫が足りるか確認します。</p>
         </div>
         <button type="button" onClick={onRefresh} disabled={updating} className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-bold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50">
-          {updating ? "在庫更新中…" : "AP在庫に更新"}
+          {updating ? "在庫更新中…" : "AP在庫を更新"}
         </button>
       </div>
 
-      <div className="overflow-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
+      <div className="max-h-[calc(100vh-260px)] overflow-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
         <table className="min-w-[1280px] w-full border-collapse text-left text-xs">
-          <thead className="sticky top-0 z-10 bg-gray-100 text-[11px] font-bold text-gray-500"><tr>
+          <thead className="sticky top-0 z-20 bg-gray-100 text-[11px] font-bold text-gray-500 shadow-sm"><tr>
             <th className="border-b border-gray-200 px-3 py-2">商品</th><th className="border-b border-gray-200 px-3 py-2">URL</th><th className="border-b border-gray-200 px-3 py-2">JAN</th><th className="border-b border-gray-200 px-3 py-2">色</th><th className="border-b border-gray-200 px-3 py-2">型号/サイズ</th><th className="border-b border-gray-200 px-3 py-2 text-right">AP在庫（バラ）</th><th className="border-b border-gray-200 px-3 py-2 text-right">FBA推奨納品数</th><th className="border-b border-gray-200 px-3 py-2 text-right">RSL推奨納品数</th><th className="border-b border-gray-200 px-3 py-2 text-right">FBA割当（セット）</th><th className="border-b border-gray-200 px-3 py-2 text-right">RSL割当（セット）</th><th className="border-b border-gray-200 px-3 py-2 text-right">余剰数（バラ）</th><th className="border-b border-gray-200 px-3 py-2 text-right">不足数（バラ）</th><th className="border-b border-gray-200 px-3 py-2">状態</th>
           </tr></thead>
           <tbody>
@@ -1327,7 +1473,7 @@ function ApStockView({
                   <div>{fmt(v.shortage)}</div>
                   {v.unitPerSet > 1 && <div className="text-[10px] font-semibold text-gray-400">{fmt(v.shortageSet)}セット相当</div>}
                 </td>
-                <td className="border-b border-gray-100 px-3 py-2"><span className={`rounded-full border px-2 py-1 text-[11px] font-bold ${statusClass}`}>{status}</span></td>
+                <td className="border-b border-gray-100 px-3 py-2"><span className={`inline-flex min-w-[56px] items-center justify-center whitespace-nowrap rounded-full border px-2 py-1 text-[11px] font-bold ${statusClass}`}>{status}</span></td>
               </tr>;
             })}
           </tbody>
