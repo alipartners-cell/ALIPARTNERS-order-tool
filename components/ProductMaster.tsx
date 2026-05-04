@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ProductMasterItem } from "@/types";
 import Papa from "papaparse";
 import { INSPECTION_ITEMS, downloadCsv, type InspectionItem } from "@/lib/csv";
@@ -9,6 +9,7 @@ type Props = {
   masters: ProductMasterItem[];
   onChange: (next: ProductMasterItem[]) => void;
   onBack?: () => void;
+  focusSku?: string;
 };
 
 type ProductMasterItemWithSet = ProductMasterItem & {
@@ -167,7 +168,7 @@ function normalizeMaster(input: any): ProductMasterItemWithSet {
   };
 }
 
-export default function ProductMaster({ masters, onChange, onBack }: Props) {
+export default function ProductMaster({ masters, onChange, onBack, focusSku }: Props) {
   const normalizedMasters = useMemo(() => masters.map((item) => normalizeMaster(item)), [masters]);
   const [form, setForm] = useState<ProductMasterItemWithSet>(EMPTY_FORM);
   const [editingSku, setEditingSku] = useState<string | null>(null);
@@ -182,6 +183,28 @@ export default function ProductMaster({ masters, onChange, onBack }: Props) {
     fba_rsl_receiving_lt_days: 3,
     safety_stock_days: 15,
   });
+
+  useEffect(() => {
+    const sku = normalizeSku(String(focusSku ?? ""));
+    if (!sku) return;
+
+    setStatusFilter("all");
+    setQuery(sku);
+
+    const timer = window.setTimeout(() => {
+      const escapedSku = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(sku) : sku.replace(/"/g, '\\"');
+      const row = document.querySelector(`[data-master-sku="${escapedSku}"]`);
+      if (row) {
+        row.scrollIntoView({ block: "center", behavior: "smooth" });
+        row.classList.add("ring-2", "ring-indigo-300", "bg-indigo-50");
+        window.setTimeout(() => {
+          row.classList.remove("ring-2", "ring-indigo-300", "bg-indigo-50");
+        }, 1800);
+      }
+    }, 120);
+
+    return () => window.clearTimeout(timer);
+  }, [focusSku]);
 
   const filteredMasters = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -675,7 +698,7 @@ const rows = normalizedMasters.map((item) => ({
                 </tr>
               ) : (
                 filteredMasters.map((item) => (
-                  <tr key={item.sku} onClick={() => editItem(item)} className="cursor-pointer border-b border-gray-100 hover:bg-indigo-50/40">
+                  <tr key={item.sku} data-master-sku={item.sku} onClick={() => editItem(item)} className="cursor-pointer border-b border-gray-100 transition hover:bg-indigo-50/40">
                     <td className="px-3 py-2 text-center">
                       <input
                         type="checkbox"
