@@ -1047,48 +1047,6 @@ export default function HomePage() {
 
               {viewMode === "table" && (
                 <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2 whitespace-nowrap">
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={filterOrderOnly}
-                      onClick={() => setFilterOrderOnly((v) => !v)}
-                      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
-                        filterOrderOnly ? "bg-indigo-600" : "bg-gray-300"
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                          filterOrderOnly ? "translate-x-4" : "translate-x-0.5"
-                        }`}
-                      />
-                    </button>
-                    <span className="text-xs font-medium leading-none text-gray-600">
-                      発注推奨のみ
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2 whitespace-nowrap">
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={filterDeliveryOnly}
-                      onClick={() => setFilterDeliveryOnly((v) => !v)}
-                      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
-                        filterDeliveryOnly ? "bg-emerald-600" : "bg-gray-300"
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                          filterDeliveryOnly ? "translate-x-4" : "translate-x-0.5"
-                        }`}
-                      />
-                    </button>
-                    <span className="text-xs font-medium leading-none text-gray-600">
-                      納品推奨のみ
-                    </span>
-                  </div>
-
                   {selected.size > 0 && (
                     <span className="text-xs font-semibold text-indigo-600">
                       {selected.size}件選択中
@@ -1153,6 +1111,10 @@ export default function HomePage() {
                 onToggleAll={handleToggleAll}
                 sortType={tableSortType}
                 onSortTypeChange={setTableSortType}
+                filterOrderOnly={filterOrderOnly}
+                filterDeliveryOnly={filterDeliveryOnly}
+                onToggleOrderFilter={() => setFilterOrderOnly((v) => !v)}
+                onToggleDeliveryFilter={() => setFilterDeliveryOnly((v) => !v)}
                 expandedCount={tableExpandedSkus.size}
                 onExpandAll={() => setTableExpandedSkus(new Set(tableVisibleSkus))}
                 onCollapseAll={() => setTableExpandedSkus(new Set())}
@@ -1228,6 +1190,10 @@ function TableOperationBar({
   onToggleAll,
   sortType,
   onSortTypeChange,
+  filterOrderOnly,
+  filterDeliveryOnly,
+  onToggleOrderFilter,
+  onToggleDeliveryFilter,
   expandedCount,
   onExpandAll,
   onCollapseAll,
@@ -1238,6 +1204,10 @@ function TableOperationBar({
   onToggleAll: (skus: string[]) => void;
   sortType: "priority" | "china" | "fba" | "rsl";
   onSortTypeChange: (next: "priority" | "china" | "fba" | "rsl") => void;
+  filterOrderOnly: boolean;
+  filterDeliveryOnly: boolean;
+  onToggleOrderFilter: () => void;
+  onToggleDeliveryFilter: () => void;
   expandedCount: number;
   onExpandAll: () => void;
   onCollapseAll: () => void;
@@ -1271,6 +1241,30 @@ function TableOperationBar({
               <option value="rsl">RSL納品数 多い順</option>
             </select>
           </label>
+
+          <button
+            type="button"
+            onClick={onToggleOrderFilter}
+            className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
+              filterOrderOnly
+                ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
+            }`}
+          >
+            発注推奨のみ
+          </button>
+
+          <button
+            type="button"
+            onClick={onToggleDeliveryFilter}
+            className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
+              filterDeliveryOnly
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
+            }`}
+          >
+            納品推奨のみ
+          </button>
 
           <button
             type="button"
