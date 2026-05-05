@@ -14,7 +14,6 @@ import {
   type SalesChannel,
   type CsvDataKind,
 } from "@/lib/csv";
-import UploadZone from "@/components/UploadZone";
 import OrderTable from "@/components/OrderTable";
 import OrderCalendar from "@/components/OrderCalendar";
 import ProductMaster from "@/components/ProductMaster";
@@ -1021,28 +1020,6 @@ export default function HomePage() {
             onBack={() => setViewMode("table")}
             focusSku={masterFocusSku}
           />
-        ) : !showWorkspace ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-6 p-8">
-            <div className="w-full max-w-xl">
-              <UploadZone onFile={handleFile} />
-            </div>
-            {loading && <p className="text-sm text-gray-500">読み込み中…</p>}
-            {errors.length > 0 && (
-              <div className="w-full max-w-xl rounded-lg border border-red-200 bg-red-50 p-4">
-                {errors.map((e, i) => (
-                  <p key={i} className="text-xs font-mono text-red-600">
-                    {e}
-                  </p>
-                ))}
-              </div>
-            )}
-            <button
-              onClick={() => setViewMode("master")}
-              className="text-xs font-semibold text-gray-600 underline underline-offset-4 hover:text-gray-900"
-            >
-              商品マスタを開く
-            </button>
-          </div>
         ) : (
           <>
             <div className="sticky top-0 z-20 flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-5 py-3 shadow-sm">
