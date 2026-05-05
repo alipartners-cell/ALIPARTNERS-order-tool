@@ -240,6 +240,7 @@ export default function OrderTable({
   onOpenMaster,
 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [sortType, setSortType] = useState<"priority" | "china" | "fba" | "rsl">("priority");
   const [masterPreviewRow, setMasterPreviewRow] = useState<ComputedSkuRow | null>(null);
 
   const visibleRows = useMemo(() => {
@@ -251,11 +252,23 @@ export default function OrderTable({
         })
       : rows;
     return [...filtered].sort((a, b) => {
+      if (sortType === "china") {
+        return Number(b.recommended_order_qty || 0) - Number(a.recommended_order_qty || 0);
+      }
+
+      if (sortType === "fba") {
+        return Number(b.fba_recommended_delivery_qty || 0) - Number(a.fba_recommended_delivery_qty || 0);
+      }
+
+      if (sortType === "rsl") {
+        return Number(b.rsl_recommended_delivery_qty || 0) - Number(a.rsl_recommended_delivery_qty || 0);
+      }
+
       const aPriority = (a.recommended_order_qty > 0 ? 1000000000 : 0) + a.recommended_order_qty + a.fba_recommended_delivery_qty + a.rsl_recommended_delivery_qty;
       const bPriority = (b.recommended_order_qty > 0 ? 1000000000 : 0) + b.recommended_order_qty + b.fba_recommended_delivery_qty + b.rsl_recommended_delivery_qty;
       return bPriority - aPriority;
     });
-  }, [rows, filterOrderOnly, filterDeliveryOnly]);
+  }, [rows, filterOrderOnly, filterDeliveryOnly, sortType]);
 
   const visibleSkus = visibleRows.map((r) => r.sku);
   const allChecked = visibleSkus.length > 0 && visibleSkus.every((s) => selected.has(s));
@@ -270,8 +283,8 @@ export default function OrderTable({
   };
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+    <div className="bg-gray-50 p-4">
+      <div className="sticky top-0 z-30 mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
         <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
           <input
             type="checkbox"
@@ -285,6 +298,20 @@ export default function OrderTable({
         </label>
 
         <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-xs font-bold text-gray-500">
+            並び替え
+            <select
+              value={sortType}
+              onChange={(e) => setSortType(e.target.value as "priority" | "china" | "fba" | "rsl")}
+              className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs font-bold text-gray-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            >
+              <option value="priority">優先順</option>
+              <option value="china">中国発注数 多い順</option>
+              <option value="fba">FBA納品数 多い順</option>
+              <option value="rsl">RSL納品数 多い順</option>
+            </select>
+          </label>
+
           <button
             type="button"
             onClick={() => setExpanded(new Set(visibleSkus))}
