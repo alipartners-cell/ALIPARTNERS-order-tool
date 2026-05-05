@@ -1571,7 +1571,7 @@ function CsvImportStrip({
               <div>
                 <p className="text-sm font-bold text-gray-800">CSVをまとめてドラッグ＆ドロップ</p>
                 <p className="mt-1 text-xs text-gray-500">
-                  Amazon/FBAは「売上」「在庫」を選択。楽天/RSLは「売上＋在庫」を選択してください。JANで一覧へ統合します。
+                  Amazon/FBA・楽天/RSLともに「売上」「在庫」を選択してください。JANで商品を統合します。
                 </p>
               </div>
               <div className="flex items-center gap-3">
