@@ -330,6 +330,7 @@ export default function HomePage() {
   const [tableSortType, setTableSortType] = useState<"priority" | "china" | "fba" | "rsl">("priority");
   const [filterOrderOnly, setFilterOrderOnly] = useState(false);
   const [filterDeliveryOnly, setFilterDeliveryOnly] = useState(false);
+  const [tableDisplayLimit, setTableDisplayLimit] = useState(100);
   const [errors, setErrors] = useState<string[]>([]);
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -938,8 +939,24 @@ export default function HomePage() {
       .map((row) => row.sku);
   }, [rows, filterOrderOnly, filterDeliveryOnly, tableSortType]);
 
-  const tableAllChecked = tableVisibleSkus.length > 0 && tableVisibleSkus.every((sku) => selected.has(sku));
-  const tableSomeChecked = tableVisibleSkus.some((sku) => selected.has(sku));
+  useEffect(() => {
+    setTableDisplayLimit(100);
+  }, [filterOrderOnly, filterDeliveryOnly, tableSortType]);
+
+  const tableDisplayedSkus = useMemo(
+    () => tableVisibleSkus.slice(0, tableDisplayLimit),
+    [tableVisibleSkus, tableDisplayLimit]
+  );
+
+  const tableDisplayedRows = useMemo(() => {
+    const rowBySku = new Map(rows.map((row) => [row.sku, row]));
+    return tableDisplayedSkus
+      .map((sku) => rowBySku.get(sku))
+      .filter((row): row is ComputedSkuRow => Boolean(row));
+  }, [rows, tableDisplayedSkus]);
+
+  const tableAllChecked = tableDisplayedSkus.length > 0 && tableDisplayedSkus.every((sku) => selected.has(sku));
+  const tableSomeChecked = tableDisplayedSkus.some((sku) => selected.has(sku));
 
   const toggleTableExpanded = (sku: string) => {
     setTableExpandedSkus((prev) => {
@@ -1103,7 +1120,11 @@ export default function HomePage() {
 
             {viewMode === "table" && (
               <TableOperationBar
-                visibleSkus={tableVisibleSkus}
+                visibleSkus={tableDisplayedSkus}
+                totalVisibleCount={tableVisibleSkus.length}
+                shownCount={tableDisplayedSkus.length}
+                displayLimit={tableDisplayLimit}
+                onDisplayLimitChange={setTableDisplayLimit}
                 allChecked={tableAllChecked}
                 someChecked={tableSomeChecked}
                 onToggleAll={handleToggleAll}
@@ -1114,7 +1135,7 @@ export default function HomePage() {
                 onToggleOrderFilter={() => setFilterOrderOnly((v) => !v)}
                 onToggleDeliveryFilter={() => setFilterDeliveryOnly((v) => !v)}
                 expandedCount={tableExpandedSkus.size}
-                onExpandAll={() => setTableExpandedSkus(new Set(tableVisibleSkus))}
+                onExpandAll={() => setTableExpandedSkus(new Set(tableDisplayedSkus))}
                 onCollapseAll={() => setTableExpandedSkus(new Set())}
               />
             )}
@@ -1122,7 +1143,7 @@ export default function HomePage() {
             <div className="min-h-0 flex-1 overflow-auto">
               {viewMode === "table" ? (
                 <OrderTable
-                  rows={rows}
+                  rows={tableDisplayedRows}
                   selected={selected}
                   onToggle={handleToggle}
                   onToggleAll={handleToggleAll}
@@ -1183,6 +1204,10 @@ export default function HomePage() {
 
 function TableOperationBar({
   visibleSkus,
+  totalVisibleCount,
+  shownCount,
+  displayLimit,
+  onDisplayLimitChange,
   allChecked,
   someChecked,
   onToggleAll,
@@ -1197,6 +1222,10 @@ function TableOperationBar({
   onCollapseAll,
 }: {
   visibleSkus: string[];
+  totalVisibleCount: number;
+  shownCount: number;
+  displayLimit: number;
+  onDisplayLimitChange: (next: number) => void;
   allChecked: boolean;
   someChecked: boolean;
   onToggleAll: (skus: string[]) => void;
@@ -1239,6 +1268,36 @@ function TableOperationBar({
               <option value="rsl">RSL納品数 多い順</option>
             </select>
           </label>
+
+          <label className="flex items-center gap-2 text-xs font-bold text-gray-500">
+            表示件数
+            <select
+              value={displayLimit >= totalVisibleCount && totalVisibleCount > 0 ? "all" : String(displayLimit)}
+              onChange={(e) => {
+                const value = e.target.value;
+                onDisplayLimitChange(value === "all" ? Math.max(totalVisibleCount, 100) : Number(value));
+              }}
+              className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs font-bold text-gray-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            >
+              <option value="100">100件</option>
+              <option value="300">300件</option>
+              <option value="1000">1000件</option>
+              <option value="all">全件</option>
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onClick={() => onDisplayLimitChange(Math.min(totalVisibleCount, displayLimit + 100))}
+            disabled={shownCount >= totalVisibleCount}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            さらに表示（+100）
+          </button>
+
+          <span className="text-xs font-semibold text-gray-500">
+            {shownCount.toLocaleString()}/{totalVisibleCount.toLocaleString()}件表示
+          </span>
 
           <button
             type="button"
