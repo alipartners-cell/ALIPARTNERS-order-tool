@@ -22,6 +22,9 @@ interface Props {
   productMasters: Record<string, ProductMasterItem>;
   inspectionSelections?: unknown;
   onOpenMaster?: (sku: string) => void;
+  sortType: "priority" | "china" | "fba" | "rsl";
+  expandedSkus: Set<string>;
+  onToggleExpanded: (sku: string) => void;
 }
 
 const PRODUCT_DEFAULT_LT: Record<ProductType, number> = { ready: 5, oem: 30 };
@@ -238,9 +241,10 @@ export default function OrderTable({
   params,
   productMasters,
   onOpenMaster,
+  sortType,
+  expandedSkus,
+  onToggleExpanded,
 }: Props) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [sortType, setSortType] = useState<"priority" | "china" | "fba" | "rsl">("priority");
   const [masterPreviewRow, setMasterPreviewRow] = useState<ComputedSkuRow | null>(null);
 
   const visibleRows = useMemo(() => {
@@ -270,68 +274,8 @@ export default function OrderTable({
     });
   }, [rows, filterOrderOnly, filterDeliveryOnly, sortType]);
 
-  const visibleSkus = visibleRows.map((r) => r.sku);
-  const allChecked = visibleSkus.length > 0 && visibleSkus.every((s) => selected.has(s));
-  const someChecked = visibleSkus.some((s) => selected.has(s));
-
-  const toggleExpanded = (sku: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      next.has(sku) ? next.delete(sku) : next.add(sku);
-      return next;
-    });
-  };
-
   return (
     <div className="bg-gray-50 p-4">
-      <div className="sticky top-[64px] z-40 mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
-        <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
-          <input
-            type="checkbox"
-            checked={allChecked}
-            ref={(el) => {
-              if (el) el.indeterminate = !allChecked && someChecked;
-            }}
-            onChange={() => (allChecked ? onToggleAll([]) : onToggleAll(visibleSkus))}
-          />
-          表示中の商品を選択
-        </label>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 text-xs font-bold text-gray-500">
-            並び替え
-            <select
-              value={sortType}
-              onChange={(e) => setSortType(e.target.value as "priority" | "china" | "fba" | "rsl")}
-              className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs font-bold text-gray-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-            >
-              <option value="priority">優先順</option>
-              <option value="china">中国発注数 多い順</option>
-              <option value="fba">FBA納品数 多い順</option>
-              <option value="rsl">RSL納品数 多い順</option>
-            </select>
-          </label>
-
-          <button
-            type="button"
-            onClick={() => setExpanded(new Set(visibleSkus))}
-            disabled={visibleSkus.length === 0}
-            className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            すべて詳細を表示
-          </button>
-          <button
-            type="button"
-            onClick={() => setExpanded(new Set())}
-            disabled={expanded.size === 0}
-            className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            すべて閉じる
-          </button>
-          <div className="ml-1 text-xs text-gray-500">必要在庫は日販×総LTで自動計算します。</div>
-        </div>
-      </div>
-
       {visibleRows.length === 0 ? (
         <div className="rounded-xl border border-gray-200 bg-white py-16 text-center text-sm text-gray-500">該当するデータがありません</div>
       ) : (
@@ -344,7 +288,7 @@ export default function OrderTable({
             const deliverySubLabel = setDescription(unitPerSet);
             const chinaOrderQtyBara = Math.max(0, Number(row.recommended_order_qty || 0));
             const shortageQtyBara = toBaraQty(row.shortage_qty, unitPerSet);
-            const isExpanded = expanded.has(row.sku);
+            const isExpanded = expandedSkus.has(row.sku);
             return (
               <div key={row.sku} className={`rounded-2xl border bg-white p-4 shadow-sm ${selected.has(row.sku) ? "border-indigo-300 ring-2 ring-indigo-100" : "border-gray-200"}`}>
                 <div className="flex flex-wrap items-center gap-4">
@@ -415,7 +359,7 @@ export default function OrderTable({
                 )}
 
                 <div className="mt-3 flex justify-end gap-2">
-                  <button type="button" onClick={() => toggleExpanded(row.sku)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50">
+                  <button type="button" onClick={() => onToggleExpanded(row.sku)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50">
                     {isExpanded ? "詳細を閉じる" : "詳細を見る"}
                   </button>
                 </div>

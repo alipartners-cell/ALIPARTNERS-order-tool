@@ -326,6 +326,8 @@ export default function HomePage() {
   const [rowOverrides, setRowOverrides] = useState<Record<string, Partial<RawSkuRow>>>({});
   const [rowOverridesLoaded, setRowOverridesLoaded] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [tableExpandedSkus, setTableExpandedSkus] = useState<Set<string>>(new Set());
+  const [tableSortType, setTableSortType] = useState<"priority" | "china" | "fba" | "rsl">("priority");
   const [filterOrderOnly, setFilterOrderOnly] = useState(false);
   const [filterDeliveryOnly, setFilterDeliveryOnly] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
@@ -505,6 +507,7 @@ export default function HomePage() {
         errorCount: errs.length,
       }));
       setSelected(new Set());
+      setTableExpandedSkus(new Set());
 
       setProductMasters((prev) => {
         const existingBySku = new Map(prev.map((item) => [item.sku, normalizeProductMaster(item)]));
@@ -618,6 +621,7 @@ export default function HomePage() {
         errorCount: nextErrors.length,
       }));
       setSelected(new Set());
+      setTableExpandedSkus(new Set());
 
       setProductMasters((prev) => {
         const nextBySku = new Map(prev.map((item) => [normalizeSkuKey(item.sku), normalizeProductMaster(item)]));
@@ -895,6 +899,56 @@ export default function HomePage() {
   const deliveryRecommended = rows.filter((r) => r.fba_recommended_delivery_qty > 0 || r.rsl_recommended_delivery_qty > 0).length;
   const totalOrderQty = rows.reduce((s, r) => s + r.recommended_order_qty, 0);
 
+  const tableVisibleSkus = useMemo(() => {
+    const filtered = filterOrderOnly || filterDeliveryOnly
+      ? rows.filter((row) => {
+          const isOrder = row.status === "発注推奨" || row.recommended_order_qty > 0;
+          const isDelivery = row.fba_recommended_delivery_qty > 0 || row.rsl_recommended_delivery_qty > 0;
+          return (filterOrderOnly && isOrder) || (filterDeliveryOnly && isDelivery);
+        })
+      : rows;
+
+    return [...filtered]
+      .sort((a, b) => {
+        if (tableSortType === "china") {
+          return Number(b.recommended_order_qty || 0) - Number(a.recommended_order_qty || 0);
+        }
+
+        if (tableSortType === "fba") {
+          return Number(b.fba_recommended_delivery_qty || 0) - Number(a.fba_recommended_delivery_qty || 0);
+        }
+
+        if (tableSortType === "rsl") {
+          return Number(b.rsl_recommended_delivery_qty || 0) - Number(a.rsl_recommended_delivery_qty || 0);
+        }
+
+        const aPriority =
+          (a.recommended_order_qty > 0 ? 1000000000 : 0) +
+          a.recommended_order_qty +
+          a.fba_recommended_delivery_qty +
+          a.rsl_recommended_delivery_qty;
+        const bPriority =
+          (b.recommended_order_qty > 0 ? 1000000000 : 0) +
+          b.recommended_order_qty +
+          b.fba_recommended_delivery_qty +
+          b.rsl_recommended_delivery_qty;
+
+        return bPriority - aPriority;
+      })
+      .map((row) => row.sku);
+  }, [rows, filterOrderOnly, filterDeliveryOnly, tableSortType]);
+
+  const tableAllChecked = tableVisibleSkus.length > 0 && tableVisibleSkus.every((sku) => selected.has(sku));
+  const tableSomeChecked = tableVisibleSkus.some((sku) => selected.has(sku));
+
+  const toggleTableExpanded = (sku: string) => {
+    setTableExpandedSkus((prev) => {
+      const next = new Set(prev);
+      next.has(sku) ? next.delete(sku) : next.add(sku);
+      return next;
+    });
+  };
+
   const showWorkspace = productMasters.length > 0 || csvRows.length > 0;
 
   const openProductMasterForSku = (sku: string) => {
@@ -903,7 +957,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col overflow-y-auto bg-white text-gray-900">
+    <div className="flex h-screen flex-col overflow-hidden bg-white text-gray-900">
       <header className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
         <button
           type="button"
@@ -929,7 +983,7 @@ export default function HomePage() {
 
       <TopTabs viewMode={viewMode} onChange={setViewMode} />
 
-      <main className="flex min-h-0 flex-1 flex-col overflow-auto bg-white">
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
         {viewMode === "master" ? (
           <ProductMaster
             masters={productMasters.map(normalizeProductMaster)}
@@ -1091,38 +1145,57 @@ export default function HomePage() {
               />
             )}
 
-            {viewMode === "table" ? (
-              <OrderTable
-                rows={rows}
-                selected={selected}
-                onToggle={handleToggle}
+            {viewMode === "table" && (
+              <TableOperationBar
+                visibleSkus={tableVisibleSkus}
+                allChecked={tableAllChecked}
+                someChecked={tableSomeChecked}
                 onToggleAll={handleToggleAll}
-                filterOrderOnly={filterOrderOnly}
-                filterDeliveryOnly={filterDeliveryOnly}
-                params={appliedParams}
-                productMasters={productMasterBySku}
-                inspectionSelections={inspectionSelections}
-                onOpenMaster={openProductMasterForSku}
-              />
-            ) : viewMode === "apStock" ? (
-              <ApStockView
-                rows={rows}
-                productMasters={productMasterBySku}
-                apStockItems={apStockItems}
-                onRefresh={handleUpdateApStock}
-                updating={apStockUpdating}
-              />
-            ) : (
-              <OrderCalendar
-                rows={rows}
-                selected={selected}
-                onToggle={handleToggle}
-                onDownloadOrderCsv={handleDownload}
-                filterOrderOnly={filterOrderOnly}
-                productMasters={productMasterBySku}
-                inspectionSelections={inspectionSelections}
+                sortType={tableSortType}
+                onSortTypeChange={setTableSortType}
+                expandedCount={tableExpandedSkus.size}
+                onExpandAll={() => setTableExpandedSkus(new Set(tableVisibleSkus))}
+                onCollapseAll={() => setTableExpandedSkus(new Set())}
               />
             )}
+
+            <div className="min-h-0 flex-1 overflow-auto">
+              {viewMode === "table" ? (
+                <OrderTable
+                  rows={rows}
+                  selected={selected}
+                  onToggle={handleToggle}
+                  onToggleAll={handleToggleAll}
+                  filterOrderOnly={filterOrderOnly}
+                  filterDeliveryOnly={filterDeliveryOnly}
+                  params={appliedParams}
+                  productMasters={productMasterBySku}
+                  inspectionSelections={inspectionSelections}
+                  onOpenMaster={openProductMasterForSku}
+                  sortType={tableSortType}
+                  expandedSkus={tableExpandedSkus}
+                  onToggleExpanded={toggleTableExpanded}
+                />
+              ) : viewMode === "apStock" ? (
+                <ApStockView
+                  rows={rows}
+                  productMasters={productMasterBySku}
+                  apStockItems={apStockItems}
+                  onRefresh={handleUpdateApStock}
+                  updating={apStockUpdating}
+                />
+              ) : (
+                <OrderCalendar
+                  rows={rows}
+                  selected={selected}
+                  onToggle={handleToggle}
+                  onDownloadOrderCsv={handleDownload}
+                  filterOrderOnly={filterOrderOnly}
+                  productMasters={productMasterBySku}
+                  inspectionSelections={inspectionSelections}
+                />
+              )}
+            </div>
           </>
         )}
       </main>
@@ -1144,6 +1217,84 @@ export default function HomePage() {
         errors={errors}
         onClose={() => setErrorModalOpen(false)}
       />
+    </div>
+  );
+}
+
+function TableOperationBar({
+  visibleSkus,
+  allChecked,
+  someChecked,
+  onToggleAll,
+  sortType,
+  onSortTypeChange,
+  expandedCount,
+  onExpandAll,
+  onCollapseAll,
+}: {
+  visibleSkus: string[];
+  allChecked: boolean;
+  someChecked: boolean;
+  onToggleAll: (skus: string[]) => void;
+  sortType: "priority" | "china" | "fba" | "rsl";
+  onSortTypeChange: (next: "priority" | "china" | "fba" | "rsl") => void;
+  expandedCount: number;
+  onExpandAll: () => void;
+  onCollapseAll: () => void;
+}) {
+  return (
+    <div className="shrink-0 border-b border-gray-200 bg-gray-50 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+        <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
+          <input
+            type="checkbox"
+            checked={allChecked}
+            ref={(el) => {
+              if (el) el.indeterminate = !allChecked && someChecked;
+            }}
+            onChange={() => (allChecked ? onToggleAll([]) : onToggleAll(visibleSkus))}
+          />
+          表示中の商品を選択
+        </label>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-xs font-bold text-gray-500">
+            並び替え
+            <select
+              value={sortType}
+              onChange={(e) => onSortTypeChange(e.target.value as "priority" | "china" | "fba" | "rsl")}
+              className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs font-bold text-gray-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            >
+              <option value="priority">優先順</option>
+              <option value="china">中国発注数 多い順</option>
+              <option value="fba">FBA納品数 多い順</option>
+              <option value="rsl">RSL納品数 多い順</option>
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onClick={onExpandAll}
+            disabled={visibleSkus.length === 0}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            すべて詳細を表示
+          </button>
+
+          <button
+            type="button"
+            onClick={onCollapseAll}
+            disabled={expandedCount === 0}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            すべて閉じる
+          </button>
+
+          <div className="ml-1 text-xs text-gray-500">
+            必要在庫は日販×総LTで自動計算します。
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
