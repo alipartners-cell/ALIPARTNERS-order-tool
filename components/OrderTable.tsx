@@ -271,7 +271,7 @@ export default function OrderTable({
 
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+      <div className="sticky top-0 z-30 mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
         <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
           <input
             type="checkbox"
