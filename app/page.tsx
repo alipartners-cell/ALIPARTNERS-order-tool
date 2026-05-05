@@ -329,6 +329,7 @@ export default function HomePage() {
   const [filterOrderOnly, setFilterOrderOnly] = useState(false);
   const [filterDeliveryOnly, setFilterDeliveryOnly] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+  const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [filename, setFilename] = useState("");
   const [apStockUpdating, setApStockUpdating] = useState(false);
@@ -492,6 +493,7 @@ export default function HomePage() {
     async (file: File) => {
       setLoading(true);
       setErrors([]);
+      setErrorModalOpen(false);
       setFilename(file.name);
       const { rows: parsedRaw, errors: errs } = await parseCsvFile(file);
       const parsed = canonicalizeCsvRowsByJan(parsedRaw, productMasterBySku, productMasterByJan);
@@ -559,6 +561,7 @@ export default function HomePage() {
       if (items.length === 0) return;
       setLoading(true);
       setErrors([]);
+      setErrorModalOpen(false);
       setFilename(items.map((item) => item.file.name).join(" / "));
 
       // ここがJAN統合の中核。
@@ -900,7 +903,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-white text-gray-900">
+    <div className="flex min-h-screen flex-col overflow-y-auto bg-white text-gray-900">
       <header className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
         <button
           type="button"
@@ -977,9 +980,14 @@ export default function HomePage() {
                   </button>
                 )}
                 {errors.length > 0 && (
-                  <span className="text-xs text-amber-600">
+                  <button
+                    type="button"
+                    onClick={() => setErrorModalOpen(true)}
+                    className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100"
+                    title="CSVエラーの詳細を表示"
+                  >
                     ⚠ {errors.length}件のエラー
-                  </span>
+                  </button>
                 )}
               </div>
 
@@ -1078,6 +1086,8 @@ export default function HomePage() {
                 onFile={handleFile}
                 onApplyFiles={handleApplyChannelFiles}
                 csvLoadStatus={csvLoadStatus}
+                errors={errors}
+                onOpenErrors={() => setErrorModalOpen(true)}
               />
             )}
 
@@ -1128,6 +1138,93 @@ export default function HomePage() {
         onClose={() => setInspectionModalOpen(false)}
         onConfirm={handleConfirmDownload}
       />
+
+      <CsvErrorModal
+        open={errorModalOpen}
+        errors={errors}
+        onClose={() => setErrorModalOpen(false)}
+      />
+    </div>
+  );
+}
+
+function CsvErrorModal({
+  open,
+  errors,
+  onClose,
+}: {
+  open: boolean;
+  errors: string[];
+  onClose: () => void;
+}) {
+  if (!open) return null;
+
+  const copyErrors = async () => {
+    const text = errors.map((error, index) => `${index + 1}. ${error}`).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      alert("エラー内容をコピーしました");
+    } catch {
+      alert("コピーに失敗しました。画面上の内容を選択してコピーしてください。");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="flex max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-4">
+          <div>
+            <h2 className="text-lg font-black text-gray-900">CSVエラー詳細</h2>
+            <p className="mt-1 text-xs font-semibold text-gray-500">
+              取り込み時に検出されたエラーです。対象CSVを修正して、再アップロードしてください。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-3 py-1.5 text-sm font-bold text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+          >
+            閉じる
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-b border-gray-100 bg-amber-50 px-6 py-3">
+          <div className="text-sm font-bold text-amber-800">
+            エラー {errors.length.toLocaleString()}件
+          </div>
+          <button
+            type="button"
+            onClick={copyErrors}
+            className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100"
+          >
+            エラー内容をコピー
+          </button>
+        </div>
+
+        <div className="overflow-auto p-4">
+          {errors.length === 0 ? (
+            <div className="rounded-xl border border-gray-200 bg-gray-50 py-10 text-center text-sm font-bold text-gray-500">
+              現在表示できるエラーはありません
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {errors.map((error, index) => (
+                <div
+                  key={`${error}-${index}`}
+                  className="rounded-xl border border-amber-100 bg-white px-4 py-3 text-xs font-mono text-gray-700 shadow-sm"
+                >
+                  <div className="mb-1 text-[11px] font-black text-amber-600">
+                    #{index + 1}
+                  </div>
+                  <div className="whitespace-pre-wrap break-words leading-relaxed">
+                    {error}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1174,12 +1271,16 @@ function CsvImportStrip({
   onFile,
   onApplyFiles,
   csvLoadStatus,
+  errors,
+  onOpenErrors,
 }: {
   filename: string;
   loading: boolean;
   onFile: (file: File) => void;
   onApplyFiles: (items: { file: File; channel: SalesChannel; kind: CsvDataKind }[]) => void;
   csvLoadStatus: CsvLoadStatus;
+  errors: string[];
+  onOpenErrors: () => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const [items, setItems] = useState<{ id: string; file: File; channel: SalesChannel; kind: CsvDataKind }[]>([]);
@@ -1245,7 +1346,7 @@ function CsvImportStrip({
         <input type="file" accept=".csv,text/csv" multiple className="hidden" onChange={(event) => { addFiles(event.currentTarget.files); event.currentTarget.value = ""; }} />
       </label>
 
-      <CsvStatusPanel status={csvLoadStatus} />
+      <CsvStatusPanel status={csvLoadStatus} errors={errors} onOpenErrors={onOpenErrors} />
 
       {items.length > 0 && (
         <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3">
@@ -1288,7 +1389,15 @@ function CsvImportStrip({
   );
 }
 
-function CsvStatusPanel({ status }: { status: CsvLoadStatus }) {
+function CsvStatusPanel({
+  status,
+  errors,
+  onOpenErrors,
+}: {
+  status: CsvLoadStatus;
+  errors: string[];
+  onOpenErrors: () => void;
+}) {
   const hasAny =
     status.amazonSales !== null ||
     status.fbaInventory !== null ||
@@ -1313,9 +1422,14 @@ function CsvStatusPanel({ status }: { status: CsvLoadStatus }) {
         <CsvStatusBadge label="楽天売上" value={status.rakutenSales} />
         <CsvStatusBadge label="RSL在庫" value={status.rslInventory} />
         {status.errorCount > 0 && (
-          <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+          <button
+            type="button"
+            onClick={onOpenErrors}
+            className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100"
+            title="CSVエラーの詳細を表示"
+          >
             エラー {status.errorCount}件
-          </span>
+          </button>
         )}
       </div>
 
