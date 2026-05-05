@@ -20,6 +20,19 @@ export function getTotalLeadTimeDays(params: OrderParams, row?: RawSkuRow): numb
   );
 }
 
+function normalizeJan(value: unknown): string {
+  return String(value ?? "").replace(/\D/g, "").trim();
+}
+
+function getComponentJan(row: RawSkuRow, index: number): string {
+  return normalizeJan((row as Record<string, unknown>)[`component_jan_${index}`]);
+}
+
+function getComponentQty(row: RawSkuRow, index: number): number {
+  const n = Number((row as Record<string, unknown>)[`component_qty_${index}`]);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
 function applyMoqAndOrderUnit(shortageQty: number, moq?: number, orderUnit?: number): number {
   if (shortageQty <= 0) return 0;
   const safeMoq = num(moq);
@@ -119,8 +132,87 @@ export function computeRow(row: RawSkuRow, params: OrderParams): ComputedSkuRow 
   };
 }
 
+function applySetAndBundleLogic(rows: ComputedSkuRow[]): ComputedSkuRow[] {
+  const result = rows.map((row) => ({ ...row }));
+  const rowBySku = new Map(result.map((row) => [row.sku, row]));
+  const rowByJan = new Map<string, ComputedSkuRow>();
+
+  result.forEach((row) => {
+    const jan = normalizeJan(row.jan);
+    if (jan && !rowByJan.has(jan)) rowByJan.set(jan, row);
+  });
+
+  // 付属品連動は、セット親SKUが分解後に0になる前の発注数を使う可能性があるため、先に保持する。
+  const originalOrderQtyBySku = new Map(
+    result.map((row) => [row.sku, Math.max(0, Math.floor(num(row.recommended_order_qty)))])
+  );
+
+  // セット商品：親SKUの発注数を構成JANへ分解して加算する。
+  result.forEach((parentRow) => {
+    if (parentRow.item_type !== "set") return;
+
+    const parentQty = originalOrderQtyBySku.get(parentRow.sku) ?? 0;
+    if (parentQty <= 0) return;
+
+    let addedToComponent = false;
+
+    for (let index = 1; index <= 5; index += 1) {
+      const componentJan = getComponentJan(parentRow, index);
+      if (!componentJan) continue;
+
+      const targetRow = rowByJan.get(componentJan);
+      if (!targetRow || targetRow.sku === parentRow.sku) continue;
+
+      const addQty = parentQty * getComponentQty(parentRow, index);
+      targetRow.recommended_order_qty = Math.max(0, Math.floor(num(targetRow.recommended_order_qty) + addQty));
+      targetRow.shortage_qty = Math.max(0, num(targetRow.shortage_qty) + addQty);
+      targetRow.status = "発注推奨";
+      addedToComponent = true;
+    }
+
+    // 構成JANに一致する商品がある場合のみ、親セットの中国発注数を0にする。
+    // 一致がなければ発注漏れ防止のため親の発注数を残す。
+    if (addedToComponent) {
+      const parent = rowBySku.get(parentRow.sku);
+      if (parent) {
+        parent.recommended_order_qty = 0;
+        parent.shortage_qty = 0;
+        parent.status = parent.fba_recommended_delivery_qty > 0 || parent.rsl_recommended_delivery_qty > 0
+          ? "納品推奨"
+          : "対応不要";
+      }
+    }
+  });
+
+  // 付属品：親商品の発注数に連動して、付属品JANへ必要数を加算する。
+  result.forEach((parentRow) => {
+    if (parentRow.item_type === "bundle") return;
+
+    const parentQty = parentRow.item_type === "set"
+      ? originalOrderQtyBySku.get(parentRow.sku) ?? 0
+      : Math.max(0, Math.floor(num(parentRow.recommended_order_qty)));
+
+    if (parentQty <= 0) return;
+
+    for (let index = 1; index <= 5; index += 1) {
+      const componentJan = getComponentJan(parentRow, index);
+      if (!componentJan) continue;
+
+      const targetRow = rowByJan.get(componentJan);
+      if (!targetRow || targetRow.sku === parentRow.sku || targetRow.item_type !== "bundle") continue;
+
+      const addQty = parentQty * getComponentQty(parentRow, index);
+      targetRow.recommended_order_qty = Math.max(0, Math.floor(num(targetRow.recommended_order_qty) + addQty));
+      targetRow.shortage_qty = Math.max(0, num(targetRow.shortage_qty) + addQty);
+      targetRow.status = "発注推奨";
+    }
+  });
+
+  return result;
+}
+
 export function computeAllRows(rows: RawSkuRow[], params: OrderParams): ComputedSkuRow[] {
-  return rows.map((row) => computeRow(row, params));
+  return applySetAndBundleLogic(rows.map((row) => computeRow(row, params)));
 }
 
 export function toRawRow(row: ComputedSkuRow | RawSkuRow): RawSkuRow {
@@ -128,6 +220,17 @@ export function toRawRow(row: ComputedSkuRow | RawSkuRow): RawSkuRow {
     sku: row.sku,
     jan: row.jan ?? "",
     product_name: row.product_name,
+    item_type: row.item_type,
+    component_jan_1: row.component_jan_1,
+    component_qty_1: row.component_qty_1,
+    component_jan_2: row.component_jan_2,
+    component_qty_2: row.component_qty_2,
+    component_jan_3: row.component_jan_3,
+    component_qty_3: row.component_qty_3,
+    component_jan_4: row.component_jan_4,
+    component_qty_4: row.component_qty_4,
+    component_jan_5: row.component_jan_5,
+    component_qty_5: row.component_qty_5,
     monthly_sales: num(row.monthly_sales),
     fba_stock: num(row.fba_stock),
     rsl_stock: num(row.rsl_stock),

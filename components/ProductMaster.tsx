@@ -317,8 +317,9 @@ function normalizeJanText(value: unknown) {
 
 function normalizeItemType(value: unknown): "single" | "set" | "bundle" {
   const v = String(value ?? "").trim();
-  if (v === "セット") return "set";
-  if (v === "付属品") return "bundle";
+  if (v === "single" || v === "単品") return "single";
+  if (v === "set" || v === "セット") return "set";
+  if (v === "bundle" || v === "付属品") return "bundle";
   return "single";
 }
 
@@ -366,7 +367,7 @@ function normalizeMaster(input: any): ProductMasterItemWithSet {
     fba_rsl_receiving_lt_days: Number(input.fba_rsl_receiving_lt_days) || 3,
     safety_stock_days: Number(input.safety_stock_days) || 15,
     unit_per_set: Math.max(1, Number(input.unit_per_set ?? input.set_count ?? input["セット数"]) || 1),
-    item_type: normalizeItemType(input.item_type ?? input["商品種別"]),
+    item_type: normalizeItemType(input.item_type ?? input["商品種別"] ?? input["商品構成"]),
     component_jan_1: normalizeJanText(input.component_jan_1 ?? input["構成JAN1"]),
     component_qty_1: normalizeComponentQty(input.component_qty_1 ?? input["構成数量1"]),
     component_jan_2: normalizeJanText(input.component_jan_2 ?? input["構成JAN2"]),

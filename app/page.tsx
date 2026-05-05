@@ -100,6 +100,21 @@ function normalizeProductMaster(input: any): ProductMasterItem {
   const optionalProductType = (value: unknown) => value === "oem" || value === "ready" ? value : undefined;
   const optionalInspectionType = (value: unknown) => value === "detailed" || value === "simple" ? value : undefined;
   const optionalShippingMethod = (value: unknown) => value === "sea" || value === "air" ? value : undefined;
+  const optionalItemType = (value: unknown) => {
+    const text = String(value ?? "").trim();
+
+    if (text === "single" || text === "単品") return "single";
+    if (text === "set" || text === "セット") return "set";
+    if (text === "bundle" || text === "付属品") return "bundle";
+
+    return "single";
+  };
+  const normalizeComponentJan = (value: unknown) => String(value ?? "").replace(/\D/g, "").trim();
+  const normalizeComponentQty = (value: unknown) => {
+    if (value === undefined || value === null || value === "") return 1;
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  };
 
   const inspectionItems = Array.isArray(input.default_inspection_items)
     ? input.default_inspection_items.filter((item: unknown): item is string =>
@@ -133,6 +148,17 @@ function normalizeProductMaster(input: any): ProductMasterItem {
     fba_rsl_receiving_lt_days: optionalNumber(input.fba_rsl_receiving_lt_days),
     safety_stock_days: optionalNumber(input.safety_stock_days),
     ...({ unit_per_set: unitPerSet } as unknown as Partial<ProductMasterItem>),
+    item_type: optionalItemType(input.item_type ?? input["商品種別"] ?? input["商品構成"]),
+    component_jan_1: normalizeComponentJan(input.component_jan_1),
+    component_qty_1: normalizeComponentQty(input.component_qty_1),
+    component_jan_2: normalizeComponentJan(input.component_jan_2),
+    component_qty_2: normalizeComponentQty(input.component_qty_2),
+    component_jan_3: normalizeComponentJan(input.component_jan_3),
+    component_qty_3: normalizeComponentQty(input.component_qty_3),
+    component_jan_4: normalizeComponentJan(input.component_jan_4),
+    component_qty_4: normalizeComponentQty(input.component_qty_4),
+    component_jan_5: normalizeComponentJan(input.component_jan_5),
+    component_qty_5: normalizeComponentQty(input.component_qty_5),
     default_inspection_items: inspectionItems,
     memo: String(input.memo ?? input.default_memo ?? ""),
     factory_name: String(input.factory_name ?? ""),
@@ -453,6 +479,17 @@ export default function HomePage() {
         sku: master.sku,
         jan: master.jan || csv?.jan || "",
         product_name: master.product_name || csv?.product_name || "",
+        item_type: master.item_type,
+        component_jan_1: master.component_jan_1,
+        component_qty_1: master.component_qty_1,
+        component_jan_2: master.component_jan_2,
+        component_qty_2: master.component_qty_2,
+        component_jan_3: master.component_jan_3,
+        component_qty_3: master.component_qty_3,
+        component_jan_4: master.component_jan_4,
+        component_qty_4: master.component_qty_4,
+        component_jan_5: master.component_jan_5,
+        component_qty_5: master.component_qty_5,
         monthly_sales: csv?.monthly_sales ?? 0,
         fba_stock: csv?.fba_stock ?? 0,
         rsl_stock: csv?.rsl_stock ?? 0,
@@ -874,6 +911,17 @@ export default function HomePage() {
           sku: master.sku,
           jan: master.jan,
           product_name: master.product_name,
+          item_type: master.item_type,
+          component_jan_1: master.component_jan_1,
+          component_qty_1: master.component_qty_1,
+          component_jan_2: master.component_jan_2,
+          component_qty_2: master.component_qty_2,
+          component_jan_3: master.component_jan_3,
+          component_qty_3: master.component_qty_3,
+          component_jan_4: master.component_jan_4,
+          component_qty_4: master.component_qty_4,
+          component_jan_5: master.component_jan_5,
+          component_qty_5: master.component_qty_5,
           monthly_sales: existing?.monthly_sales ?? 0,
           fba_stock: existing?.fba_stock ?? 0,
           rsl_stock: existing?.rsl_stock ?? 0,

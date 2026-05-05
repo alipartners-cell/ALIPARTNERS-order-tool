@@ -15,10 +15,23 @@ export interface SkuLtSettings {
   safety_stock_days?: number;
 }
 
+export type ProductItemType = "single" | "set" | "bundle";
+
 export interface RawSkuRow extends SkuLtSettings {
   sku: string;
   jan: string;
   product_name: string;
+  item_type?: ProductItemType;
+  component_jan_1?: string;
+  component_qty_1?: number;
+  component_jan_2?: string;
+  component_qty_2?: number;
+  component_jan_3?: string;
+  component_qty_3?: number;
+  component_jan_4?: string;
+  component_qty_4?: number;
+  component_jan_5?: string;
+  component_qty_5?: number;
   monthly_sales: number;
   fba_stock: number;
   rsl_stock: number;
@@ -80,6 +93,18 @@ export interface ProductMasterItem extends SkuLtSettings {
   size: string;
   cost_rmb: number;
   moq: number;
+  unit_per_set?: number;
+  item_type?: ProductItemType;
+  component_jan_1?: string;
+  component_qty_1?: number;
+  component_jan_2?: string;
+  component_qty_2?: number;
+  component_jan_3?: string;
+  component_qty_3?: number;
+  component_jan_4?: string;
+  component_qty_4?: number;
+  component_jan_5?: string;
+  component_qty_5?: number;
   default_inspection_items: string[];
   memo: string;
   factory_name: string;
