@@ -1098,8 +1098,6 @@ export default function HomePage() {
                 onFile={handleFile}
                 onApplyFiles={handleApplyChannelFiles}
                 csvLoadStatus={csvLoadStatus}
-                errors={errors}
-                onOpenErrors={() => setErrorModalOpen(true)}
               />
             )}
 
@@ -1416,18 +1414,15 @@ function CsvImportStrip({
   onFile,
   onApplyFiles,
   csvLoadStatus,
-  errors,
-  onOpenErrors,
 }: {
   filename: string;
   loading: boolean;
   onFile: (file: File) => void;
   onApplyFiles: (items: { file: File; channel: SalesChannel; kind: CsvDataKind }[]) => void;
   csvLoadStatus: CsvLoadStatus;
-  errors: string[];
-  onOpenErrors: () => void;
 }) {
   const [dragging, setDragging] = useState(false);
+  const [csvOpen, setCsvOpen] = useState(true);
   const [items, setItems] = useState<{ id: string; file: File; channel: SalesChannel; kind: CsvDataKind }[]>([]);
 
   const addFiles = (files: FileList | null) => {
@@ -1461,74 +1456,91 @@ function CsvImportStrip({
 
   return (
     <div className="shrink-0 border-b border-gray-200 bg-gray-50 px-5 py-3">
-      <label
-        onDragOver={(event) => {
-          event.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={handleDrop}
-        className={`block cursor-pointer rounded-xl border-2 border-dashed px-4 py-3 transition ${
-          dragging
-            ? "border-indigo-500 bg-indigo-50"
-            : "border-gray-300 bg-white hover:border-indigo-300 hover:bg-indigo-50/40"
-        }`}
-      >
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-bold text-gray-800">CSVをまとめてドラッグ＆ドロップ</p>
-            <p className="mt-1 text-xs text-gray-500">
-              Amazon/FBAは「売上」「在庫」を選択。楽天/RSLは「売上＋在庫」を選択してください。JANで一覧へ統合します。
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="max-w-[260px] truncate text-xs font-mono text-gray-500">
-              {loading ? "読込中…" : filename || "CSV未読込"}
-            </span>
-            <span className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white">CSV選択</span>
-          </div>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-black text-gray-700">CSV読込エリア</p>
         </div>
-        <input type="file" accept=".csv,text/csv" multiple className="hidden" onChange={(event) => { addFiles(event.currentTarget.files); event.currentTarget.value = ""; }} />
-      </label>
+        <button
+          type="button"
+          onClick={() => setCsvOpen((v) => !v)}
+          className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 shadow-sm hover:bg-gray-50"
+        >
+          {csvOpen ? "閉じる ▲" : "開く ▼"}
+        </button>
+      </div>
 
-      <CsvStatusPanel status={csvLoadStatus} errors={errors} onOpenErrors={onOpenErrors} />
-
-      {items.length > 0 && (
-        <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-bold text-gray-700">取込待ちCSV</p>
-            <div className="flex gap-2">
-              <button onClick={() => setItems([])} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50">クリア</button>
-              <button onClick={apply} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-500">CSVを反映</button>
-            </div>
-          </div>
-          <div className="space-y-2">
-            {items.map((item) => (
-              <div key={item.id} className="grid grid-cols-[1fr_140px_120px_40px] items-center gap-2 rounded-lg bg-gray-50 px-3 py-2">
-                <span className="truncate text-xs font-mono text-gray-600">{item.file.name}</span>
-                <select value={item.channel} onChange={(e) => setItems((prev) => prev.map((v) => {
-                  if (v.id !== item.id) return v;
-                  const nextChannel = e.target.value as SalesChannel;
-                  return { ...v, channel: nextChannel, kind: nextChannel === "rakuten" ? "rakuten_combined" : "inventory" };
-                }))} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-700">
-                  <option value="amazon">Amazon/FBA</option>
-                  <option value="rakuten">楽天/RSL</option>
-                </select>
-                <select value={item.kind} onChange={(e) => setItems((prev) => prev.map((v) => v.id === item.id ? { ...v, kind: e.target.value as CsvDataKind } : v))} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-700">
-                  {item.channel === "rakuten" ? (
-                    <option value="rakuten_combined">売上＋在庫</option>
-                  ) : (
-                    <>
-                      <option value="inventory">在庫</option>
-                      <option value="sales">売上</option>
-                    </>
-                  )}
-                </select>
-                <button onClick={() => setItems((prev) => prev.filter((v) => v.id !== item.id))} className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-black text-gray-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600" title="このCSVを削除">×</button>
+      {csvOpen && (
+        <>
+          <label
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={handleDrop}
+            className={`block cursor-pointer rounded-xl border-2 border-dashed px-4 py-3 transition ${
+              dragging
+                ? "border-indigo-500 bg-indigo-50"
+                : "border-gray-300 bg-white hover:border-indigo-300 hover:bg-indigo-50/40"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-bold text-gray-800">CSVをまとめてドラッグ＆ドロップ</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Amazon/FBAは「売上」「在庫」を選択。楽天/RSLは「売上＋在庫」を選択してください。JANで一覧へ統合します。
+                </p>
               </div>
-            ))}
-          </div>
-        </div>
+              <div className="flex items-center gap-3">
+                <span className="max-w-[260px] truncate text-xs font-mono text-gray-500">
+                  {loading ? "読込中…" : filename || "CSV未読込"}
+                </span>
+                <span className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white">CSV選択</span>
+              </div>
+            </div>
+            <input type="file" accept=".csv,text/csv" multiple className="hidden" onChange={(event) => { addFiles(event.currentTarget.files); event.currentTarget.value = ""; }} />
+          </label>
+
+          <CsvStatusPanel status={csvLoadStatus} />
+
+          {items.length > 0 && (
+            <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-bold text-gray-700">取込待ちCSV</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setItems([])} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50">クリア</button>
+                  <button onClick={apply} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-500">CSVを反映</button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {items.map((item) => (
+                  <div key={item.id} className="grid grid-cols-[1fr_140px_120px_40px] items-center gap-2 rounded-lg bg-gray-50 px-3 py-2">
+                    <span className="truncate text-xs font-mono text-gray-600">{item.file.name}</span>
+                    <select value={item.channel} onChange={(e) => setItems((prev) => prev.map((v) => {
+                      if (v.id !== item.id) return v;
+                      const nextChannel = e.target.value as SalesChannel;
+                      return { ...v, channel: nextChannel, kind: nextChannel === "rakuten" ? "rakuten_combined" : "inventory" };
+                    }))} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-700">
+                      <option value="amazon">Amazon/FBA</option>
+                      <option value="rakuten">楽天/RSL</option>
+                    </select>
+                    <select value={item.kind} onChange={(e) => setItems((prev) => prev.map((v) => v.id === item.id ? { ...v, kind: e.target.value as CsvDataKind } : v))} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-700">
+                      {item.channel === "rakuten" ? (
+                        <option value="rakuten_combined">売上＋在庫</option>
+                      ) : (
+                        <>
+                          <option value="inventory">在庫</option>
+                          <option value="sales">売上</option>
+                        </>
+                      )}
+                    </select>
+                    <button onClick={() => setItems((prev) => prev.filter((v) => v.id !== item.id))} className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-black text-gray-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600" title="このCSVを削除">×</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1536,12 +1548,8 @@ function CsvImportStrip({
 
 function CsvStatusPanel({
   status,
-  errors,
-  onOpenErrors,
 }: {
   status: CsvLoadStatus;
-  errors: string[];
-  onOpenErrors: () => void;
 }) {
   const hasAny =
     status.amazonSales !== null ||
@@ -1566,16 +1574,6 @@ function CsvStatusPanel({
         <CsvStatusBadge label="FBA在庫" value={status.fbaInventory} />
         <CsvStatusBadge label="楽天売上" value={status.rakutenSales} />
         <CsvStatusBadge label="RSL在庫" value={status.rslInventory} />
-        {status.errorCount > 0 && (
-          <button
-            type="button"
-            onClick={onOpenErrors}
-            className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100"
-            title="CSVエラーの詳細を表示"
-          >
-            エラー {status.errorCount}件
-          </button>
-        )}
       </div>
 
       {status.lastFiles.length > 0 && (
