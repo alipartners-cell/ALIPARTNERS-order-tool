@@ -53,7 +53,8 @@ const EMPTY_CSV_LOAD_STATUS: CsvLoadStatus = {
 function getCsvStatusLabel(channel: SalesChannel, kind: CsvDataKind) {
   if (channel === "amazon" && kind === "sales") return "Amazon売上";
   if (channel === "amazon" && kind === "inventory") return "FBA在庫";
-  if (channel === "rakuten") return "楽天CSV（売上＋在庫）";
+  if (channel === "rakuten" && kind === "inventory") return "RSL在庫";
+  if (channel === "rakuten") return "楽天売上";
   return "CSV";
 }
 
@@ -587,8 +588,8 @@ export default function HomePage() {
         nextErrors.push(...parsed.errors);
 
         if (item.channel === "rakuten") {
-          loadedCounts.rakutenSales = (loadedCounts.rakutenSales ?? 0) + parsed.rows.length;
-          loadedCounts.rslInventory = (loadedCounts.rslInventory ?? 0) + parsed.rows.length;
+          const statusKey = item.kind === "inventory" ? "rslInventory" : "rakutenSales";
+          loadedCounts[statusKey] = (loadedCounts[statusKey] ?? 0) + parsed.rows.length;
         } else {
           const statusKey = item.kind === "sales" ? "amazonSales" : "fbaInventory";
           loadedCounts[statusKey] = (loadedCounts[statusKey] ?? 0) + parsed.rows.length;
@@ -597,7 +598,19 @@ export default function HomePage() {
         parsed.rows.forEach((partial) => {
           if (!partial.sku && !partial.jan) return;
 
-          const canonical = getCanonicalKeyForCsvRow(partial, productMasterBySku, productMasterByJan);
+          // 楽天SKU実績レポートは「売上」として扱う。
+          // 旧レポート内の在庫列で、在庫エイジング由来のRSL在庫を上書きしない。
+          const normalizedPartial: Partial<RawSkuRow> =
+            item.channel === "rakuten" && item.kind === "sales"
+              ? {
+                  ...partial,
+                  rsl_stock: undefined,
+                  rakuten_stock: undefined,
+                  rsl_inbound_plan: undefined,
+                }
+              : partial;
+
+          const canonical = getCanonicalKeyForCsvRow(normalizedPartial, productMasterBySku, productMasterByJan);
           if (!canonical.key || !canonical.sku) return;
 
           touchedKeys.add(canonical.key);
@@ -605,7 +618,7 @@ export default function HomePage() {
           const current = merged.get(canonical.key);
           merged.set(
             canonical.key,
-            mergeRawSkuRow(current, partial, canonical.sku, canonical.jan)
+            mergeRawSkuRow(current, normalizedPartial, canonical.sku, canonical.jan)
           );
         });
       }
@@ -1489,16 +1502,27 @@ function CsvImportStrip({
     if (nextFiles.length === 0) return;
     setItems((prev) => [
       ...prev,
-      ...nextFiles.map((file) => ({
-        id: `${file.name}-${file.size}-${file.lastModified}-${Math.random()}`,
-        file,
-        channel: file.name.toLowerCase().includes("rakuten") || file.name.includes("楽天") ? "rakuten" : "amazon",
-        kind: file.name.toLowerCase().includes("rakuten") || file.name.includes("楽天")
-          ? "rakuten_combined"
-          : file.name.includes("売上") || file.name.toLowerCase().includes("sales")
+      ...nextFiles.map((file) => {
+        const lowerName = file.name.toLowerCase();
+        const isRakutenAging = file.name.includes("在庫エイジング") || lowerName.includes("aging");
+        const isRakutenSalesReport = file.name.includes("SKU実績") || lowerName.includes("sku実績");
+        const isRakuten = lowerName.includes("rakuten") || file.name.includes("楽天") || isRakutenAging || isRakutenSalesReport;
+        const channel: SalesChannel = isRakuten ? "rakuten" : "amazon";
+        const kind: CsvDataKind = isRakuten
+          ? isRakutenAging
+            ? "inventory"
+            : "sales"
+          : file.name.includes("売上") || lowerName.includes("sales")
             ? "sales"
-            : "inventory",
-      } as { id: string; file: File; channel: SalesChannel; kind: CsvDataKind })),
+            : "inventory";
+
+        return {
+          id: `${file.name}-${file.size}-${file.lastModified}-${Math.random()}`,
+          file,
+          channel,
+          kind,
+        } as { id: string; file: File; channel: SalesChannel; kind: CsvDataKind };
+      }),
     ]);
   };
 
@@ -1578,14 +1602,17 @@ function CsvImportStrip({
                     <select value={item.channel} onChange={(e) => setItems((prev) => prev.map((v) => {
                       if (v.id !== item.id) return v;
                       const nextChannel = e.target.value as SalesChannel;
-                      return { ...v, channel: nextChannel, kind: nextChannel === "rakuten" ? "rakuten_combined" : "inventory" };
+                      return { ...v, channel: nextChannel, kind: nextChannel === "rakuten" ? "sales" : "inventory" };
                     }))} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-700">
                       <option value="amazon">Amazon/FBA</option>
                       <option value="rakuten">楽天/RSL</option>
                     </select>
                     <select value={item.kind} onChange={(e) => setItems((prev) => prev.map((v) => v.id === item.id ? { ...v, kind: e.target.value as CsvDataKind } : v))} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-700">
                       {item.channel === "rakuten" ? (
-                        <option value="rakuten_combined">売上＋在庫</option>
+                        <>
+                          <option value="sales">売上</option>
+                          <option value="inventory">在庫</option>
+                        </>
                       ) : (
                         <>
                           <option value="inventory">在庫</option>
@@ -1677,6 +1704,8 @@ function ApStockView({
   onRefresh: () => void;
   updating: boolean;
 }) {
+  const [apStatusFilter, setApStatusFilter] = useState<"all" | "shortage" | "excess" | "exact">("all");
+
   const normalizeJan = (value: unknown) => String(value ?? "").replace(/\D/g, "").trim();
   const rowByJan = new Map(rows.map((row) => [normalizeJan(row.jan), row]));
 
@@ -1731,6 +1760,15 @@ function ApStockView({
     });
   }, [apStockItems, rows, productMasters]);
 
+  const filteredDisplayItems = useMemo(() => {
+    return displayItems.filter((item) => {
+      if (apStatusFilter === "shortage") return item.shortage > 0;
+      if (apStatusFilter === "excess") return item.apRemain > 0;
+      if (apStatusFilter === "exact") return item.shortage === 0 && item.apRemain === 0;
+      return true;
+    });
+  }, [displayItems, apStatusFilter]);
+
   const fmt = (value: number) => Number(value || 0).toLocaleString();
 
   return (
@@ -1739,6 +1777,56 @@ function ApStockView({
         <div>
           <h2 className="text-base font-black text-gray-900">AP在庫</h2>
           <p className="mt-1 text-xs text-gray-500">FBA/RSLへの推奨納品数に対してAP在庫が足りるか確認します。</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-xs font-bold text-gray-500">状態</span>
+          <button
+            type="button"
+            onClick={() => setApStatusFilter("all")}
+            className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
+              apStatusFilter === "all"
+                ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
+            }`}
+          >
+            すべて
+          </button>
+          <button
+            type="button"
+            onClick={() => setApStatusFilter("shortage")}
+            className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
+              apStatusFilter === "shortage"
+                ? "border-red-200 bg-red-50 text-red-600"
+                : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
+            }`}
+          >
+            不足
+          </button>
+          <button
+            type="button"
+            onClick={() => setApStatusFilter("excess")}
+            className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
+              apStatusFilter === "excess"
+                ? "border-sky-200 bg-sky-50 text-sky-700"
+                : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
+            }`}
+          >
+            余剰
+          </button>
+          <button
+            type="button"
+            onClick={() => setApStatusFilter("exact")}
+            className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
+              apStatusFilter === "exact"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
+            }`}
+          >
+            ちょうど
+          </button>
+          <span className="text-xs font-semibold text-gray-500">
+            {filteredDisplayItems.length.toLocaleString()}/{displayItems.length.toLocaleString()}件表示
+          </span>
         </div>
         <button type="button" onClick={onRefresh} disabled={updating} className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-bold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50">
           {updating ? "在庫更新中…" : "AP在庫を更新"}
@@ -1751,7 +1839,7 @@ function ApStockView({
             <th className="border-b border-gray-200 px-3 py-2">商品</th><th className="border-b border-gray-200 px-3 py-2">URL</th><th className="border-b border-gray-200 px-3 py-2">JAN</th><th className="border-b border-gray-200 px-3 py-2">色</th><th className="border-b border-gray-200 px-3 py-2">型号/サイズ</th><th className="border-b border-gray-200 px-3 py-2 text-right">AP在庫（バラ）</th><th className="border-b border-gray-200 px-3 py-2 text-right">FBA推奨納品数</th><th className="border-b border-gray-200 px-3 py-2 text-right">RSL推奨納品数</th><th className="border-b border-gray-200 px-3 py-2 text-right">FBA割当（セット）</th><th className="border-b border-gray-200 px-3 py-2 text-right">RSL割当（セット）</th><th className="border-b border-gray-200 px-3 py-2 text-right">余剰数（バラ）</th><th className="border-b border-gray-200 px-3 py-2 text-right">不足数（バラ）</th><th className="border-b border-gray-200 px-3 py-2">状態</th>
           </tr></thead>
           <tbody>
-            {displayItems.map((v, idx) => {
+            {filteredDisplayItems.map((v, idx) => {
               const status = v.shortage > 0 ? "不足" : v.apRemain > 0 ? "余剰" : "ちょうど";
               const statusClass = v.shortage > 0 ? "border-red-200 bg-red-50 text-red-600" : v.apRemain > 0 ? "border-sky-200 bg-sky-50 text-sky-700" : "border-emerald-200 bg-emerald-50 text-emerald-700";
               const productName = v.row?.product_name || v.master?.product_name || v.item.product_name || "商品名未設定";

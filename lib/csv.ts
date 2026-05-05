@@ -13,7 +13,7 @@ export const INSPECTION_ITEMS = [
 export type InspectionItem = (typeof INSPECTION_ITEMS)[number];
 export type InspectionSelections = Record<string, InspectionItem[]>;
 export type SalesChannel = "amazon" | "rakuten";
-export type CsvDataKind = "inventory" | "sales" | "rakuten_combined";
+export type CsvDataKind = "inventory" | "sales" | "rakuten_combined" | "rakuten_inventory_aging";
 
 const toNumber = (value: unknown): number => {
   if (value === null || value === undefined || value === "") return 0;
@@ -243,13 +243,80 @@ async function parseRakutenCombinedCsvFile(file: File): Promise<{ rows: Partial<
   return { rows, errors };
 }
 
+function matrixRowsToInventoryAgingObjects(matrix: unknown[][], fileName: string): { rows: Record<string, unknown>[]; errors: string[] } {
+  const errors: string[] = [];
+  const headerIndex = matrix.findIndex((row) => {
+    const cells = row.map((v) => clean(v));
+    return (
+      cells.includes("店舗内商品コード") &&
+      cells.includes("インストアコード(物流)") &&
+      cells.includes("販売可能在庫数")
+    );
+  });
+
+  if (headerIndex < 0) {
+    return {
+      rows: [],
+      errors: [`${fileName}: 在庫エイジングレポートのヘッダー行（店舗内商品コード / インストアコード(物流) / 販売可能在庫数）を判別できません`],
+    };
+  }
+
+  const headers = matrix[headerIndex].map((v) => clean(v));
+  const rows: Record<string, unknown>[] = [];
+
+  matrix.slice(headerIndex + 1).forEach((row) => {
+    const obj: Record<string, unknown> = {};
+    headers.forEach((header, idx) => {
+      if (header) obj[header] = row[idx];
+    });
+    const hasAnyValue = Object.values(obj).some((value) => clean(value) !== "");
+    if (hasAnyValue) rows.push(obj);
+  });
+
+  return { rows, errors };
+}
+
+async function parseRakutenInventoryAgingCsvFile(file: File): Promise<{ rows: Partial<RawSkuRow>[]; errors: string[] }> {
+  const matrixResult = await parseCsvMatrixFile(file, "shift-jis");
+  const objectResult = matrixRowsToInventoryAgingObjects(matrixResult.data, file.name);
+  const errors: string[] = [...matrixResult.errors, ...objectResult.errors];
+  const rows: Partial<RawSkuRow>[] = [];
+
+  objectResult.rows.forEach((r, index) => {
+    // 在庫エイジングレポートでは「インストアコード(物流)」をJANとして使う。
+    // JAN一致でpage.tsx側の商品マスタSKUへ寄せるため、SKU差異があっても統合できる。
+    const jan = cleanJan(r["インストアコード(物流)"] ?? r["JANコード"] ?? r["メーカー品番"] ?? pick(r, JAN_ALIASES));
+    if (!jan) {
+      errors.push(`${file.name} ${index + 1}行目: インストアコード(物流)からJANを判別できません`);
+      return;
+    }
+
+    const rslStock = toNumber(r["販売可能在庫数"] ?? r["在庫数"] ?? r["現在庫"] ?? r["RSL在庫"]);
+
+    rows.push({
+      // SKUは表示補助。統合キーにはしない。page.tsx側でJAN一致の既存マスタSKUへ寄せる。
+      sku: clean(r["店舗内商品コード"] ?? pick(r, SKU_ALIASES)) || jan,
+      jan,
+      product_name: clean(r["商品名"] ?? pick(r, NAME_ALIASES)),
+      rakuten_stock: rslStock,
+      rsl_stock: rslStock,
+    });
+  });
+
+  return { rows, errors };
+}
+
 export async function parseChannelCsvFile(
   file: File,
   channel: SalesChannel,
   kind: CsvDataKind
 ): Promise<{ rows: Partial<RawSkuRow>[]; errors: string[] }> {
-  // 楽天SKU実績レポート（月次）は「売上＋在庫」が1ファイルに入っているため、
-  // UIの選択が inventory/sales のどちらでも楽天専用パーサで処理する。
+  // 楽天RSL在庫は、在庫エイジングレポートを inventory として処理する。
+  // 楽天売上CSV（月次SKU実績レポート）は rakuten_combined / sales として処理する。
+  if (channel === "rakuten" && (kind === "inventory" || kind === "rakuten_inventory_aging")) {
+    return parseRakutenInventoryAgingCsvFile(file);
+  }
+
   if (channel === "rakuten" || kind === "rakuten_combined") {
     return parseRakutenCombinedCsvFile(file);
   }
