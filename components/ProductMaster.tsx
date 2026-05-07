@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { ProductMasterItem } from "@/types";
+import type { ProductMasterItem, PurchaseSkuItem } from "@/types";
 import * as XLSX from "xlsx";
 import { INSPECTION_ITEMS, type InspectionItem } from "@/lib/csv";
 
 type Props = {
   masters: ProductMasterItem[];
+  purchaseSkus?: PurchaseSkuItem[];
   onChange: (next: ProductMasterItem[]) => void;
   onBack?: () => void;
   focusSku?: string;
@@ -25,6 +26,11 @@ type ProductMasterItemWithSet = ProductMasterItem & {
   component_qty_4?: number;
   component_jan_5?: string;
   component_qty_5?: number;
+  component_purchase_sku_1?: string;
+  component_purchase_sku_2?: string;
+  component_purchase_sku_3?: string;
+  component_purchase_sku_4?: string;
+  component_purchase_sku_5?: string;
 };
 
 const EMPTY_FORM: ProductMasterItemWithSet = {
@@ -63,6 +69,11 @@ const EMPTY_FORM: ProductMasterItemWithSet = {
   component_qty_4: 1,
   component_jan_5: "",
   component_qty_5: 1,
+  component_purchase_sku_1: "",
+  component_purchase_sku_2: "",
+  component_purchase_sku_3: "",
+  component_purchase_sku_4: "",
+  component_purchase_sku_5: "",
 };
 
 
@@ -396,6 +407,11 @@ function normalizeMaster(input: any): ProductMasterItemWithSet {
     component_qty_4: normalizeComponentQty(input.component_qty_4 ?? input["構成数量4"]),
     component_jan_5: normalizeJanText(input.component_jan_5 ?? input["構成JAN5"]),
     component_qty_5: normalizeComponentQty(input.component_qty_5 ?? input["構成数量5"]),
+    component_purchase_sku_1: normalizeSku(String(input.component_purchase_sku_1 ?? input["構成発注SKU1"] ?? "")),
+    component_purchase_sku_2: normalizeSku(String(input.component_purchase_sku_2 ?? input["構成発注SKU2"] ?? "")),
+    component_purchase_sku_3: normalizeSku(String(input.component_purchase_sku_3 ?? input["構成発注SKU3"] ?? "")),
+    component_purchase_sku_4: normalizeSku(String(input.component_purchase_sku_4 ?? input["構成発注SKU4"] ?? "")),
+    component_purchase_sku_5: normalizeSku(String(input.component_purchase_sku_5 ?? input["構成発注SKU5"] ?? "")),
     default_inspection_items: Array.isArray(input.default_inspection_items)
       ? input.default_inspection_items.filter((v: unknown): v is InspectionItem =>
           (INSPECTION_ITEMS as readonly string[]).includes(String(v))
@@ -412,7 +428,13 @@ function normalizeMaster(input: any): ProductMasterItemWithSet {
   };
 }
 
-export default function ProductMaster({ masters, onChange, onBack, focusSku }: Props) {
+export default function ProductMaster({
+  masters,
+  purchaseSkus = [],
+  onChange,
+  onBack,
+  focusSku,
+}: Props) {
   const normalizedMasters = useMemo(() => masters.map((item) => normalizeMaster(item)), [masters]);
   const [form, setForm] = useState<ProductMasterItemWithSet>(EMPTY_FORM);
   const [editingSku, setEditingSku] = useState<string | null>(null);
@@ -456,7 +478,7 @@ export default function ProductMaster({ masters, onChange, onBack, focusSku }: P
     return normalizedMasters.filter((item) => {
       if (statusFilter !== "all" && item.master_status !== statusFilter) return false;
       if (!q) return true;
-      return [item.sku, item.jan, item.asin, item.product_name, item.product_url, item.item_type, item.component_jan_1, item.component_jan_2, item.component_jan_3, item.component_jan_4, item.component_jan_5]
+      return [item.sku, item.jan, item.asin, item.product_name, item.product_url, item.item_type, item.component_jan_1, item.component_jan_2, item.component_jan_3, item.component_jan_4, item.component_jan_5, item.component_purchase_sku_1, item.component_purchase_sku_2, item.component_purchase_sku_3, item.component_purchase_sku_4, item.component_purchase_sku_5]
         .join(" ")
         .toLowerCase()
         .includes(q);
@@ -771,21 +793,24 @@ export default function ProductMaster({ masters, onChange, onBack, focusSku }: P
                   <div>
                     {(form.item_type === "set" || form.item_type === "bundle") && (
   <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">
-    セット商品は構成する単品JAN、付属品は付属先の親商品JANを入力してください
+    セット商品は構成する単品JANと構成発注SKU、付属品は付属先の親商品JANと発注SKUを入力してください
   </div>
 )}
-                    <div className="grid grid-cols-5 gap-3">
+                    <div className="grid grid-cols-6 gap-3">
                       <TextInput label="構成JAN1" value={form.component_jan_1 ?? ""} onChange={(v) => setForm({ ...form, component_jan_1: v })} />
+                      <TextInput label="構成発注SKU1" value={form.component_purchase_sku_1 ?? ""} onChange={(v) => setForm({ ...form, component_purchase_sku_1: v })} />
                       <NumberInput label="数量1" value={form.component_qty_1 ?? 1} onChange={(v) => setForm({ ...form, component_qty_1: Math.max(1, v || 1) })} />
                       <TextInput label="構成JAN2" value={form.component_jan_2 ?? ""} onChange={(v) => setForm({ ...form, component_jan_2: v })} />
+                      <TextInput label="構成発注SKU2" value={form.component_purchase_sku_2 ?? ""} onChange={(v) => setForm({ ...form, component_purchase_sku_2: v })} />
                       <NumberInput label="数量2" value={form.component_qty_2 ?? 1} onChange={(v) => setForm({ ...form, component_qty_2: Math.max(1, v || 1) })} />
-                      <div />
                       <TextInput label="構成JAN3" value={form.component_jan_3 ?? ""} onChange={(v) => setForm({ ...form, component_jan_3: v })} />
+                      <TextInput label="構成発注SKU3" value={form.component_purchase_sku_3 ?? ""} onChange={(v) => setForm({ ...form, component_purchase_sku_3: v })} />
                       <NumberInput label="数量3" value={form.component_qty_3 ?? 1} onChange={(v) => setForm({ ...form, component_qty_3: Math.max(1, v || 1) })} />
                       <TextInput label="構成JAN4" value={form.component_jan_4 ?? ""} onChange={(v) => setForm({ ...form, component_jan_4: v })} />
+                      <TextInput label="構成発注SKU4" value={form.component_purchase_sku_4 ?? ""} onChange={(v) => setForm({ ...form, component_purchase_sku_4: v })} />
                       <NumberInput label="数量4" value={form.component_qty_4 ?? 1} onChange={(v) => setForm({ ...form, component_qty_4: Math.max(1, v || 1) })} />
-                      <div />
                       <TextInput label="構成JAN5" value={form.component_jan_5 ?? ""} onChange={(v) => setForm({ ...form, component_jan_5: v })} />
+                      <TextInput label="構成発注SKU5" value={form.component_purchase_sku_5 ?? ""} onChange={(v) => setForm({ ...form, component_purchase_sku_5: v })} />
                       <NumberInput label="数量5" value={form.component_qty_5 ?? 1} onChange={(v) => setForm({ ...form, component_qty_5: Math.max(1, v || 1) })} />
                     </div>
                   </div>
@@ -1031,8 +1056,14 @@ export default function ProductMaster({ masters, onChange, onBack, focusSku }: P
                         <div className="space-y-0.5">
                           {[1, 2, 3, 4, 5].map((n) => {
                             const jan = (item as any)[`component_jan_${n}`];
+                            const purchaseSku = (item as any)[`component_purchase_sku_${n}`];
                             const qty = (item as any)[`component_qty_${n}`] || 1;
-                            return jan ? <div key={n} className="font-mono">{jan} × {qty}</div> : null;
+                            if (!jan && !purchaseSku) return null;
+                            return (
+                              <div key={n} className="font-mono">
+                                {jan || "JAN未設定"} / {purchaseSku || "発注SKU未設定"} × {qty}
+                              </div>
+                            );
                           })}
                         </div>
                       ) : "-"}

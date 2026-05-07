@@ -105,8 +105,32 @@ export interface ProductMasterItem extends SkuLtSettings {
   component_qty_4?: number;
   component_jan_5?: string;
   component_qty_5?: number;
+  component_purchase_sku_1?: string;
+component_purchase_sku_2?: string;
+component_purchase_sku_3?: string;
+component_purchase_sku_4?: string;
+component_purchase_sku_5?: string;
   default_inspection_items: string[];
   memo: string;
   factory_name: string;
   master_status?: ProductMasterStatus;
+}
+
+export interface PurchaseSkuItem {
+  purchase_sku: string;
+  parent_jan: string;
+  parent_sku?: string;
+  item_type?: ProductItemType;
+  product_name?: string;
+  color?: string;
+  size?: string;
+
+  moq?: number;
+  order_unit?: number;
+
+  ap_stock?: number;
+  theoretical_stock?: number;
+  recommended_order_qty?: number;
+  url_1688?: string;
+  enabled?: boolean;
 }
