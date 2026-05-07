@@ -25,11 +25,11 @@ function normalizeJan(value: unknown): string {
 }
 
 function getComponentJan(row: RawSkuRow, index: number): string {
-  return normalizeJan((row as Record<string, unknown>)[`component_jan_${index}`]);
+  return normalizeJan((row as unknown as Record<string, unknown>)[`component_jan_${index}`]);
 }
 
 function getComponentQty(row: RawSkuRow, index: number): number {
-  const n = Number((row as Record<string, unknown>)[`component_qty_${index}`]);
+  const n = Number((row as unknown as Record<string, unknown>)[`component_qty_${index}`]);
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
@@ -132,6 +132,45 @@ export function computeRow(row: RawSkuRow, params: OrderParams): ComputedSkuRow 
   };
 }
 
+
+function getUnitPerSet(row: RawSkuRow): number {
+  const raw = Number((row as unknown as Record<string, unknown>).unit_per_set ?? 1);
+  return Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 1;
+}
+
+function applySetUnitConversion(rows: ComputedSkuRow[]): ComputedSkuRow[] {
+  return rows.map((row) => {
+    const unitPerSet = getUnitPerSet(row);
+
+    const fbaRequiredSet = num(row.fba_required_stock);
+    const rslRequiredSet = num(row.rsl_required_stock);
+    const fbaStockSet = num(row.amazon_stock);
+    const rslStockSet = num(row.rakuten_stock);
+    const fbaInboundSet = num(row.fba_inbound_plan);
+    const rslInboundSet = num(row.rsl_inbound_plan);
+    const apStockEach = num(row.ap_stock);
+    const apStockSet = unitPerSet > 1 ? Math.floor(apStockEach / unitPerSet) : apStockEach;
+
+    const requiredTotalSet = fbaRequiredSet + rslRequiredSet;
+    const availableTotalSet = fbaStockSet + rslStockSet + fbaInboundSet + rslInboundSet + apStockSet;
+    const shortageSet = Math.max(0, requiredTotalSet - availableTotalSet);
+    const recommendedOrderQtyEach = shortageSet * unitPerSet;
+
+    return {
+      ...row,
+      ...({ unit_per_set: unitPerSet } as unknown as Partial<ComputedSkuRow>),
+      // shortage_qty はセット単位。中国発注数は個（バラ）単位。
+      shortage_qty: shortageSet,
+      recommended_order_qty: recommendedOrderQtyEach,
+      status: shortageSet > 0
+        ? "発注推奨"
+        : row.fba_recommended_delivery_qty > 0 || row.rsl_recommended_delivery_qty > 0
+          ? "納品推奨"
+          : "対応不要",
+    };
+  });
+}
+
 function applySetAndBundleLogic(rows: ComputedSkuRow[]): ComputedSkuRow[] {
   const result = rows.map((row) => ({ ...row }));
   const rowBySku = new Map(result.map((row) => [row.sku, row]));
@@ -212,7 +251,9 @@ function applySetAndBundleLogic(rows: ComputedSkuRow[]): ComputedSkuRow[] {
 }
 
 export function computeAllRows(rows: RawSkuRow[], params: OrderParams): ComputedSkuRow[] {
-  return applySetAndBundleLogic(rows.map((row) => computeRow(row, params)));
+  const baseRows = rows.map((row) => computeRow(row, params));
+  const unitConvertedRows = applySetUnitConversion(baseRows);
+  return applySetAndBundleLogic(unitConvertedRows);
 }
 
 export function toRawRow(row: ComputedSkuRow | RawSkuRow): RawSkuRow {
@@ -254,5 +295,6 @@ export function toRawRow(row: ComputedSkuRow | RawSkuRow): RawSkuRow {
     international_shipping_lt_days: row.international_shipping_lt_days,
     fba_rsl_receiving_lt_days: row.fba_rsl_receiving_lt_days,
     safety_stock_days: row.safety_stock_days,
+    ...({ unit_per_set: (row as unknown as { unit_per_set?: unknown }).unit_per_set } as unknown as Partial<RawSkuRow>),
   };
 }

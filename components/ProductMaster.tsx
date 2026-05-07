@@ -329,6 +329,24 @@ function normalizeComponentQty(value: unknown) {
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
+function hasComponentJan(item: ProductMasterItemWithSet) {
+  return [
+    item.component_jan_1,
+    item.component_jan_2,
+    item.component_jan_3,
+    item.component_jan_4,
+    item.component_jan_5,
+  ].some((jan) => String(jan ?? "").trim());
+}
+
+function getMasterStatus(item: ProductMasterItemWithSet): "complete" | "draft" {
+  if (!item.sku) return "draft";
+  if ((item.item_type === "set" || item.item_type === "bundle") && !hasComponentJan(item)) {
+    return "draft";
+  }
+  return "complete";
+}
+
 function excelText(value: string) {
   const text = String(value ?? "").trim().replace(/"/g, "");
   return text ? `="${text}"` : "";
@@ -344,7 +362,7 @@ function parseInspectionItems(value: string): InspectionItem[] {
 }
 
 function normalizeMaster(input: any): ProductMasterItemWithSet {
-  return {
+  const item: ProductMasterItemWithSet = {
     ...EMPTY_FORM,
     ...input,
     sku: normalizeSku(String(input.sku ?? "")),
@@ -386,6 +404,11 @@ function normalizeMaster(input: any): ProductMasterItemWithSet {
     memo: String(input.memo ?? input.default_memo ?? ""),
     factory_name: String(input.factory_name ?? ""),
     master_status: input.master_status === "draft" ? "draft" : "complete",
+  };
+
+  return {
+    ...item,
+    master_status: getMasterStatus(item),
   };
 }
 
@@ -459,11 +482,19 @@ export default function ProductMaster({ masters, onChange, onBack, focusSku }: P
       return;
     }
 
-    const item: ProductMasterItem = normalizeMaster({
+    const item: ProductMasterItemWithSet = normalizeMaster({
       ...form,
       sku,
       master_status: "complete",
     });
+
+    if ((item.item_type === "set" || item.item_type === "bundle") && !hasComponentJan(item)) {
+      alert(item.item_type === "set"
+        ? "セット商品は、構成する単品JANを1つ以上入力してください"
+        : "付属品は、付属先の親商品JANをcomponent_janに入力してください"
+      );
+      return;
+    }
 
     if (!editingSku && masterBySku.has(sku)) {
       const ok = confirm("同じSKUがすでにあります。上書きしますか？");
@@ -589,14 +620,14 @@ export default function ProductMaster({ masters, onChange, onBack, focusSku }: P
         return;
       }
 
-      const current = new Map(normalizedMasters.map((item) => [item.sku, item]));
+      const current = new Map<string, ProductMasterItemWithSet>(normalizedMasters.map((item) => [item.sku, item]));
       let added = 0;
       let updated = 0;
 
       parsed.forEach((item) => {
         if (current.has(item.sku)) updated += 1;
         else added += 1;
-        current.set(item.sku, { ...item, master_status: "complete" });
+        current.set(item.sku, { ...item, master_status: getMasterStatus(item) });
       });
 
       onChange(Array.from(current.values()).sort((a, b) => a.sku.localeCompare(b.sku)));
@@ -740,7 +771,7 @@ export default function ProductMaster({ masters, onChange, onBack, focusSku }: P
                   <div>
                     {(form.item_type === "set" || form.item_type === "bundle") && (
   <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">
-    構成JANを入力してください
+    セット商品は構成する単品JAN、付属品は付属先の親商品JANを入力してください
   </div>
 )}
                     <div className="grid grid-cols-5 gap-3">

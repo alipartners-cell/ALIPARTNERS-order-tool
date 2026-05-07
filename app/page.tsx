@@ -517,7 +517,7 @@ export default function HomePage() {
       };
     });
 
-    return adjustRowsForSetUnits(computeAllRows(baseRows, appliedParams), productMasterBySku);
+    return computeAllRows(baseRows, appliedParams);
   }, [productMasters, csvRowBySku, csvRowByJan, appliedParams, productMasterBySku]);
 
   const csvMatchedCount = useMemo(() => {
