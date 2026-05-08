@@ -1248,6 +1248,13 @@ const purchaseBreakdownRows = useMemo<PurchaseBreakdownRow[]>(
                   purchaseSkus={purchaseSkus}
                   purchaseBreakdownRows={purchaseBreakdownRows}
                   purchaseSkuSummaryRows={purchaseSkuSummaryRows}
+                  purchaseFormOpen={purchaseFormOpen}
+                  setPurchaseFormOpen={setPurchaseFormOpen}
+                  purchaseForm={purchaseForm}
+                  setPurchaseForm={setPurchaseForm}
+                  handleAddPurchaseSku={handleAddPurchaseSku}
+                  manualPurchaseOrders={manualPurchaseOrders}
+                  setManualPurchaseOrders={setManualPurchaseOrders}
                 />
               ) : viewMode === "apStock" ? (
                 <ApStockView
