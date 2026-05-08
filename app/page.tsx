@@ -13,15 +13,8 @@ import {
 } from "@/lib/csvMergeEngine";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import type { ComputedSkuRow, OrderParams, RawSkuRow, ProductMasterItem, PurchaseSkuItem } from "@/types";
+import type { ComputedSkuRow, OrderParams, RawSkuRow, ProductMasterItem } from "@/types";
 import { computeAllRows, toRawRow } from "@/lib/calc";
-import {
-  calculateRecommendedPurchaseQty,
-  buildPurchaseSkuSummaryRows,
-  buildPurchaseBreakdownRows,
-  type PurchaseBreakdownRow,
-  type PurchaseSkuSummaryRow,
-} from "@/lib/purchaseEngine";
 import {
   INSPECTION_ITEMS,
   parseCsvFile,
@@ -37,6 +30,7 @@ import OrderTable from "@/components/OrderTable";
 import OrderCalendar from "@/components/OrderCalendar";
 import ProductMaster from "@/components/ProductMaster";
 import PurchaseManager from "@/lib/PurchaseManage";
+import { usePurchaseManager } from "@/lib/usePurchaseManager";
 
 const DEFAULT_PARAMS: OrderParams = {
   product_type: "ready",
@@ -49,22 +43,6 @@ const DEFAULT_PARAMS: OrderParams = {
   safety_stock_days: 15,
 };
 
-const PURCHASE_SKUS_STORAGE_KEY = "alipartners_purchase_skus";
-
-const DEFAULT_PURCHASE_SKUS: PurchaseSkuItem[] = [
-  {
-    purchase_sku: "PINK-L",
-    parent_jan: "4589999999999",
-    color: "粉色",
-    size: "L",
-    ap_stock: 120,
-    moq: 0,
-    order_unit: 0,
-    recommended_order_qty: 300,
-    url_1688: "https://detail.1688.com/offer/sample.html",
-    enabled: true,
-  } as PurchaseSkuItem,
-];
 
 type CsvLoadStatus = {
   amazonSales: number | null;
@@ -304,9 +282,6 @@ export default function HomePage() {
   const [exportOrderQty, setExportOrderQty] = useState<Record<string, number>>({});
   const [masterNotice, setMasterNotice] = useState("");
   const [csvLoadStatus, setCsvLoadStatus] = useState<CsvLoadStatus>(EMPTY_CSV_LOAD_STATUS);
-  const [purchaseSkus, setPurchaseSkus] = useState<PurchaseSkuItem[]>(DEFAULT_PURCHASE_SKUS);
-  const [purchaseSkusLoaded, setPurchaseSkusLoaded] = useState(false);
-  const [manualPurchaseOrders, setManualPurchaseOrders] = useState<Record<string, number>>({});
 
   useEffect(() => {
     try {
@@ -339,48 +314,12 @@ export default function HomePage() {
     }
   }, []);
 
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(PURCHASE_SKUS_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          const normalized = parsed
-            .map((item): PurchaseSkuItem => ({
-              purchase_sku: String(item?.purchase_sku ?? "").trim(),
-              parent_jan: String(item?.parent_jan ?? "").replace(/\D/g, "").trim(),
-              parent_sku: String(item?.parent_sku ?? "").trim() || undefined,
-              color: String(item?.color ?? ""),
-              size: String(item?.size ?? ""),
-              ap_stock: Number(item?.ap_stock ?? 0) || 0,
-              moq: Number(item?.moq ?? 0) || 0,
-              order_unit: Number(item?.order_unit ?? 0) || 0,
-              theoretical_stock: Number(item?.theoretical_stock ?? 0) || 0,
-              recommended_order_qty: Number(item?.recommended_order_qty ?? 0) || 0,
-              url_1688: String(item?.url_1688 ?? ""),
-              enabled: item?.enabled !== false,
-            } as PurchaseSkuItem))
-            .filter((item) => item.purchase_sku);
-
-          setPurchaseSkus(normalized.length > 0 ? normalized : DEFAULT_PURCHASE_SKUS);
-        }
-      }
-    } catch {
-      // localStorage load failed; keep default purchase SKUs.
-    } finally {
-      setPurchaseSkusLoaded(true);
-    }
-  }, []);
 
   useEffect(() => {
     if (!rowOverridesLoaded) return;
     window.localStorage.setItem("alipartners_row_overrides", JSON.stringify(rowOverrides));
   }, [rowOverrides, rowOverridesLoaded]);
 
-  useEffect(() => {
-    if (!purchaseSkusLoaded) return;
-    window.localStorage.setItem(PURCHASE_SKUS_STORAGE_KEY, JSON.stringify(purchaseSkus));
-  }, [purchaseSkus, purchaseSkusLoaded]);
 
   useEffect(() => {
     if (!mastersLoaded) return;
@@ -492,6 +431,18 @@ export default function HomePage() {
 
     return computeAllRows(baseRows, appliedParams);
   }, [productMasters, csvRowBySku, csvRowByJan, appliedParams, productMasterBySku]);
+
+  const {
+    purchaseSkus,
+    setPurchaseSkus,
+    purchaseBreakdownRows,
+    purchaseSkuSummaryRows,
+    manualPurchaseOrders,
+    setManualPurchaseOrders,
+  } = usePurchaseManager({
+    rows,
+    productMasterBySku,
+  });
 
   const csvMatchedCount = useMemo(() => {
     return csvRows.filter((row) => productMasterBySku[row.sku]).length;
@@ -988,26 +939,6 @@ export default function HomePage() {
       .filter((row): row is ComputedSkuRow => Boolean(row));
   }, [rows, tableDisplayedSkus]);
 
-const purchaseBreakdownRows = useMemo<PurchaseBreakdownRow[]>(
-  () =>
-    buildPurchaseBreakdownRows(
-      rows,
-      productMasterBySku,
-      purchaseSkus
-    ),
-  [rows, productMasterBySku, purchaseSkus]
-);
-
-  const purchaseSkuSummaryRows = useMemo<PurchaseSkuSummaryRow[]>(
-    () => buildPurchaseSkuSummaryRows(purchaseBreakdownRows, purchaseSkus),
-    [purchaseBreakdownRows, purchaseSkus]
-  );
-
-  const purchaseSkuSummaryBySku = useMemo(() => {
-    return new Map(
-      purchaseSkuSummaryRows.map((item) => [String(item.purchase_sku ?? "").trim(), item] as const)
-    );
-  }, [purchaseSkuSummaryRows]);
 
   const tableAllChecked = tableDisplayedSkus.length > 0 && tableDisplayedSkus.every((sku) => selected.has(sku));
   const tableSomeChecked = tableDisplayedSkus.some((sku) => selected.has(sku));
