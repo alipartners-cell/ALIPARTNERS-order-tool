@@ -142,3 +142,20 @@ export function canonicalizeCsvRowsByJan(
 
   return Array.from(merged.values());
 }
+
+export function buildMergedChannelRows<T>(
+  rows: T[],
+  getKey: (row: T) => string
+) {
+  const merged = new Map<string, T>();
+
+  rows.forEach((row) => {
+    const key = getKey(row);
+
+    if (!key) return;
+
+    merged.set(key, row);
+  });
+
+  return Array.from(merged.values());
+}
