@@ -58,6 +58,57 @@ export default function PurchaseManager({
   const [purchaseForm, setPurchaseForm] = useState<PurchaseSkuItem>(
     EMPTY_PURCHASE_SKU_FORM
   );
+  const [editingPurchaseSku, setEditingPurchaseSku] = useState("");
+
+  const resetPurchaseForm = () => {
+    setPurchaseForm(EMPTY_PURCHASE_SKU_FORM);
+    setEditingPurchaseSku("");
+    setPurchaseFormOpen(false);
+  };
+
+  const handleStartEditPurchaseSku = (item: PurchaseSkuItem) => {
+    setEditingPurchaseSku(String(item.purchase_sku ?? "").trim());
+    setPurchaseForm({
+      ...EMPTY_PURCHASE_SKU_FORM,
+      ...item,
+      purchase_sku: String(item.purchase_sku ?? "").trim(),
+      parent_jan: String(item.parent_jan ?? "").replace(/\D/g, "").trim(),
+      color: String(item.color ?? ""),
+      size: String(item.size ?? ""),
+      ap_stock: Math.max(0, Math.floor(Number(item.ap_stock) || 0)),
+      moq: Math.max(0, Math.floor(Number((item as any).moq) || 0)),
+      order_unit: Math.max(0, Math.floor(Number((item as any).order_unit) || 0)),
+      recommended_order_qty: Math.max(
+        0,
+        Math.floor(Number(item.recommended_order_qty) || 0)
+      ),
+      url_1688: String(item.url_1688 ?? ""),
+      enabled: item.enabled !== false,
+    } as PurchaseSkuItem);
+    setPurchaseFormOpen(true);
+  };
+
+  const handleDeletePurchaseSku = (purchaseSku: string) => {
+    const target = String(purchaseSku ?? "").trim();
+    if (!target) return;
+
+    const ok = window.confirm(`発注SKU「${target}」を削除しますか？`);
+    if (!ok) return;
+
+    setPurchaseSkus((prev) =>
+      prev.filter((item) => String(item.purchase_sku ?? "").trim() !== target)
+    );
+
+    setManualPurchaseOrders((prev) => {
+      const next = { ...prev };
+      delete next[target];
+      return next;
+    });
+
+    if (editingPurchaseSku === target) {
+      resetPurchaseForm();
+    }
+  };
 
   const handleAddPurchaseSku = () => {
     const purchaseSku = String(purchaseForm.purchase_sku ?? "").trim();
@@ -67,10 +118,11 @@ export default function PurchaseManager({
       return;
     }
 
-    const duplicated = purchaseSkus.some(
-      (item) =>
-        item.purchase_sku.trim().toLowerCase() === purchaseSku.toLowerCase()
-    );
+    const duplicated = purchaseSkus.some((item) => {
+      const currentSku = String(item.purchase_sku ?? "").trim();
+      if (editingPurchaseSku && currentSku === editingPurchaseSku) return false;
+      return currentSku.toLowerCase() === purchaseSku.toLowerCase();
+    });
 
     if (duplicated) {
       alert("同じ発注SKUがすでにあります");
@@ -98,14 +150,32 @@ export default function PurchaseManager({
       enabled: true,
     } as PurchaseSkuItem;
 
-    setPurchaseSkus((prev) =>
-      [...prev, nextItem].sort((a, b) =>
-        a.purchase_sku.localeCompare(b.purchase_sku)
-      )
-    );
+    setPurchaseSkus((prev) => {
+      const next = editingPurchaseSku
+        ? prev.map((item) =>
+            String(item.purchase_sku ?? "").trim() === editingPurchaseSku
+              ? nextItem
+              : item
+          )
+        : [...prev, nextItem];
 
-    setPurchaseForm(EMPTY_PURCHASE_SKU_FORM);
-    setPurchaseFormOpen(false);
+      return next.sort((a, b) =>
+        String(a.purchase_sku ?? "").localeCompare(String(b.purchase_sku ?? ""))
+      );
+    });
+
+    if (editingPurchaseSku && editingPurchaseSku !== purchaseSku) {
+      setManualPurchaseOrders((prev) => {
+        if (prev[editingPurchaseSku] === undefined) return prev;
+
+        const next = { ...prev };
+        next[purchaseSku] = next[editingPurchaseSku];
+        delete next[editingPurchaseSku];
+        return next;
+      });
+    }
+
+    resetPurchaseForm();
   };
 
   return (
@@ -127,7 +197,11 @@ export default function PurchaseManager({
             onClick={() => setPurchaseFormOpen((v) => !v)}
             className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-500"
           >
-            {purchaseFormOpen ? "発注SKU追加を閉じる ▲" : "発注SKUを追加 ▼"}
+            {purchaseFormOpen
+              ? editingPurchaseSku
+                ? "発注SKU編集を閉じる ▲"
+                : "発注SKU追加を閉じる ▲"
+              : "発注SKUを追加 ▼"}
           </button>
         </div>
       </div>
@@ -135,9 +209,13 @@ export default function PurchaseManager({
       {purchaseFormOpen && (
         <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5 shadow-sm">
           <div className="mb-4">
-            <h3 className="text-sm font-black text-gray-900">発注SKU追加</h3>
+            <h3 className="text-sm font-black text-gray-900">
+              {editingPurchaseSku ? "発注SKU編集" : "発注SKU追加"}
+            </h3>
             <p className="mt-1 text-xs font-semibold text-gray-500">
-              発注SKUマスタへ1件追加します。
+              {editingPurchaseSku
+                ? "登録済みの発注SKUを編集します。"
+                : "発注SKUマスタへ1件追加します。"}
             </p>
           </div>
 
@@ -269,7 +347,7 @@ export default function PurchaseManager({
           <div className="mt-4 flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => setPurchaseFormOpen(false)}
+              onClick={resetPurchaseForm}
               className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
             >
               キャンセル
@@ -454,6 +532,7 @@ export default function PurchaseManager({
                   <th className="px-3 py-2 text-right">MOQ</th>
                   <th className="px-3 py-2 text-right">発注単位</th>
                   <th className="px-3 py-2">1688URL</th>
+                  <th className="px-3 py-2 text-right">操作</th>
                 </tr>
               </thead>
 
@@ -461,7 +540,7 @@ export default function PurchaseManager({
                 {purchaseSkus.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       className="px-3 py-10 text-center text-sm font-bold text-gray-400"
                     >
                       発注SKUデータはまだありません。
@@ -514,6 +593,30 @@ export default function PurchaseManager({
                         ) : (
                           <span className="text-gray-400">-</span>
                         )}
+                      </td>
+
+                      <td className="px-3 py-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditPurchaseSku(item)}
+                            className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100"
+                          >
+                            編集
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleDeletePurchaseSku(
+                                String(item.purchase_sku ?? "").trim()
+                              )
+                            }
+                            className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-[11px] font-bold text-red-700 hover:bg-red-100"
+                          >
+                            削除
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
