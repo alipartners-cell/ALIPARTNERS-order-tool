@@ -66,20 +66,6 @@ const DEFAULT_PURCHASE_SKUS: PurchaseSkuItem[] = [
   } as PurchaseSkuItem,
 ];
 
-const EMPTY_PURCHASE_SKU_FORM: PurchaseSkuItem = {
-  purchase_sku: "",
-  parent_jan: "",
-  color: "",
-  size: "",
-  ap_stock: 0,
-  moq: 0,
-  order_unit: 0,
-  recommended_order_qty: 0,
-  url_1688: "",
-  enabled: true,
-} as PurchaseSkuItem;
-
-
 type CsvLoadStatus = {
   amazonSales: number | null;
   fbaInventory: number | null;
@@ -320,8 +306,6 @@ export default function HomePage() {
   const [csvLoadStatus, setCsvLoadStatus] = useState<CsvLoadStatus>(EMPTY_CSV_LOAD_STATUS);
   const [purchaseSkus, setPurchaseSkus] = useState<PurchaseSkuItem[]>(DEFAULT_PURCHASE_SKUS);
   const [purchaseSkusLoaded, setPurchaseSkusLoaded] = useState(false);
-  const [purchaseFormOpen, setPurchaseFormOpen] = useState(false);
-  const [purchaseForm, setPurchaseForm] = useState<PurchaseSkuItem>(EMPTY_PURCHASE_SKU_FORM);
   const [manualPurchaseOrders, setManualPurchaseOrders] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -1043,43 +1027,6 @@ const purchaseBreakdownRows = useMemo<PurchaseBreakdownRow[]>(
     setViewMode("master");
   };
 
-  const handleAddPurchaseSku = () => {
-    const purchaseSku = String(purchaseForm.purchase_sku ?? "").trim();
-
-    if (!purchaseSku) {
-      alert("発注SKUを入力してください");
-      return;
-    }
-
-    const duplicated = purchaseSkus.some(
-      (item) => item.purchase_sku.trim().toLowerCase() === purchaseSku.toLowerCase()
-    );
-
-    if (duplicated) {
-      alert("同じ発注SKUがすでにあります");
-      return;
-    }
-
-    const nextItem: PurchaseSkuItem = {
-      purchase_sku: purchaseSku,
-      parent_jan: String(purchaseForm.parent_jan ?? "").replace(/\D/g, "").trim(),
-      color: String(purchaseForm.color ?? "").trim(),
-      size: String(purchaseForm.size ?? "").trim(),
-      ap_stock: Math.max(0, Math.floor(Number(purchaseForm.ap_stock) || 0)),
-      moq: Math.max(0, Math.floor(Number((purchaseForm as any).moq) || 0)),
-      order_unit: Math.max(0, Math.floor(Number((purchaseForm as any).order_unit) || 0)),
-      recommended_order_qty: Math.max(0, Math.floor(Number(purchaseForm.recommended_order_qty) || 0)),
-      url_1688: String(purchaseForm.url_1688 ?? "").trim(),
-      enabled: true,
-    } as PurchaseSkuItem;
-
-    setPurchaseSkus((prev) =>
-      [...prev, nextItem].sort((a, b) => a.purchase_sku.localeCompare(b.purchase_sku))
-    );
-    setPurchaseForm(EMPTY_PURCHASE_SKU_FORM);
-    setPurchaseFormOpen(false);
-  };
-
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-white text-gray-900">
       <header className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
@@ -1246,13 +1193,9 @@ const purchaseBreakdownRows = useMemo<PurchaseBreakdownRow[]>(
               ) : viewMode === "purchase" ? (
                 <PurchaseManager
                   purchaseSkus={purchaseSkus}
+                  setPurchaseSkus={setPurchaseSkus}
                   purchaseBreakdownRows={purchaseBreakdownRows}
                   purchaseSkuSummaryRows={purchaseSkuSummaryRows}
-                  purchaseFormOpen={purchaseFormOpen}
-                  setPurchaseFormOpen={setPurchaseFormOpen}
-                  purchaseForm={purchaseForm}
-                  setPurchaseForm={setPurchaseForm}
-                  handleAddPurchaseSku={handleAddPurchaseSku}
                   manualPurchaseOrders={manualPurchaseOrders}
                   setManualPurchaseOrders={setManualPurchaseOrders}
                 />

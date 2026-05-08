@@ -10,16 +10,25 @@ import type {
 
 type Props = {
   purchaseSkus: PurchaseSkuItem[];
+  setPurchaseSkus: Dispatch<SetStateAction<PurchaseSkuItem[]>>;
   purchaseBreakdownRows: PurchaseBreakdownRow[];
   purchaseSkuSummaryRows: PurchaseSkuSummaryRow[];
-  purchaseFormOpen: boolean;
-  setPurchaseFormOpen: Dispatch<SetStateAction<boolean>>;
-  purchaseForm: PurchaseSkuItem;
-  setPurchaseForm: Dispatch<SetStateAction<PurchaseSkuItem>>;
-  handleAddPurchaseSku: () => void;
   manualPurchaseOrders: Record<string, number>;
   setManualPurchaseOrders: Dispatch<SetStateAction<Record<string, number>>>;
 };
+
+const EMPTY_PURCHASE_SKU_FORM: PurchaseSkuItem = {
+  purchase_sku: "",
+  parent_jan: "",
+  color: "",
+  size: "",
+  ap_stock: 0,
+  moq: 0,
+  order_unit: 0,
+  recommended_order_qty: 0,
+  url_1688: "",
+  enabled: true,
+} as PurchaseSkuItem;
 
 function getText(value: unknown) {
   return String(value ?? "").trim();
@@ -37,18 +46,53 @@ function getFormNumber(value: unknown) {
 
 export default function PurchaseManager({
   purchaseSkus,
+  setPurchaseSkus,
   purchaseBreakdownRows,
   purchaseSkuSummaryRows,
-  purchaseFormOpen,
-  setPurchaseFormOpen,
-  purchaseForm,
-  setPurchaseForm,
-  handleAddPurchaseSku,
   manualPurchaseOrders,
   setManualPurchaseOrders,
 }: Props) {
   const [showPurchaseSkus, setShowPurchaseSkus] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const [purchaseFormOpen, setPurchaseFormOpen] = useState(false);
+  const [purchaseForm, setPurchaseForm] = useState<PurchaseSkuItem>(EMPTY_PURCHASE_SKU_FORM);
+
+  const handleAddPurchaseSku = () => {
+    const purchaseSku = String(purchaseForm.purchase_sku ?? "").trim();
+
+    if (!purchaseSku) {
+      alert("発注SKUを入力してください");
+      return;
+    }
+
+    const duplicated = purchaseSkus.some(
+      (item) => item.purchase_sku.trim().toLowerCase() === purchaseSku.toLowerCase()
+    );
+
+    if (duplicated) {
+      alert("同じ発注SKUがすでにあります");
+      return;
+    }
+
+    const nextItem: PurchaseSkuItem = {
+      purchase_sku: purchaseSku,
+      parent_jan: String(purchaseForm.parent_jan ?? "").replace(/\D/g, "").trim(),
+      color: String(purchaseForm.color ?? "").trim(),
+      size: String(purchaseForm.size ?? "").trim(),
+      ap_stock: Math.max(0, Math.floor(Number(purchaseForm.ap_stock) || 0)),
+      moq: Math.max(0, Math.floor(Number((purchaseForm as any).moq) || 0)),
+      order_unit: Math.max(0, Math.floor(Number((purchaseForm as any).order_unit) || 0)),
+      recommended_order_qty: Math.max(0, Math.floor(Number(purchaseForm.recommended_order_qty) || 0)),
+      url_1688: String(purchaseForm.url_1688 ?? "").trim(),
+      enabled: true,
+    } as PurchaseSkuItem;
+
+    setPurchaseSkus((prev) =>
+      [...prev, nextItem].sort((a, b) => a.purchase_sku.localeCompare(b.purchase_sku))
+    );
+    setPurchaseForm(EMPTY_PURCHASE_SKU_FORM);
+    setPurchaseFormOpen(false);
+  };
 
   return (
     <div className="space-y-6 p-6">
