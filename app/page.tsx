@@ -31,6 +31,14 @@ import OrderCalendar from "@/components/OrderCalendar";
 import ProductMasterManage from "@/components/ProductMasterManage";
 import PurchaseManager from "@/lib/PurchaseManage";
 import { usePurchaseManager } from "@/lib/usePurchaseManager";
+import {
+  loadProductMastersFromStorage,
+  saveProductMastersToStorage,
+} from "@/lib/storage/productMasterStorage";
+import {
+  loadRowOverridesFromStorage,
+  saveRowOverridesToStorage,
+} from "@/lib/storage/rowOverrideStorage";
 
 const DEFAULT_PARAMS: OrderParams = {
   product_type: "ready",
@@ -186,22 +194,6 @@ function normalizeProductMaster(input: any): ProductMasterItem {
 }
 
 
-function makeLocalStorageSafeProductMasters(items: ProductMasterItem[]): ProductMasterItem[] {
-  return items.map((item) => {
-    const imageUrl = String(item.image_url ?? "");
-
-    // base64画像をlocalStorageに保存するとすぐ容量上限に達するため、保存対象から外す。
-    // URL形式の画像だけは残す。
-    const safeImageUrl =
-      imageUrl.startsWith("data:") || imageUrl.length > 2000 ? "" : imageUrl;
-
-    return {
-      ...item,
-      image_url: safeImageUrl,
-    };
-  });
-}
-
 function makeDraftMasterFromCsv(row: RawSkuRow): ProductMasterItem {
   return normalizeProductMaster({
     sku: row.sku,
@@ -285,19 +277,7 @@ export default function HomePage() {
 
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem("alipartners_product_masters");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setProductMasters(
-            parsed
-              .map((item) => normalizeProductMaster(item))
-              .filter((item) => item.sku)
-          );
-        }
-      }
-    } catch {
-      // localStorage load failed; keep tool running.
+      setProductMasters(loadProductMastersFromStorage(normalizeProductMaster));
     } finally {
       setMastersLoaded(true);
     }
@@ -305,10 +285,7 @@ export default function HomePage() {
 
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem("alipartners_row_overrides");
-      if (saved) setRowOverrides(JSON.parse(saved));
-    } catch {
-      // keep defaults
+      setRowOverrides(loadRowOverridesFromStorage());
     } finally {
       setRowOverridesLoaded(true);
     }
@@ -317,36 +294,26 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!rowOverridesLoaded) return;
-    window.localStorage.setItem("alipartners_row_overrides", JSON.stringify(rowOverrides));
+    saveRowOverridesToStorage(rowOverrides);
   }, [rowOverrides, rowOverridesLoaded]);
 
 
   useEffect(() => {
     if (!mastersLoaded) return;
 
-    try {
-      window.localStorage.setItem(
-        "alipartners_product_masters",
-        JSON.stringify(productMasters)
-      );
-    } catch (error) {
-      // localStorageは容量が小さいため、base64画像などが入るとQuotaExceededErrorになりやすい。
-      // その場合は画像データだけ外して、マスタ本体は保存する。
-      try {
-        const safeMasters = makeLocalStorageSafeProductMasters(productMasters);
-        window.localStorage.setItem(
-          "alipartners_product_masters",
-          JSON.stringify(safeMasters)
-        );
+    const result = saveProductMastersToStorage(productMasters);
 
-        setMasterNotice(
-          "商品画像データが大きいため、画像を除いて商品マスタを保存しました。SKU/JAN/商品名/セット数/LT等のマスタ情報は保存されています。"
-        );
-      } catch {
-        setMasterNotice(
-          "商品マスタの保存容量が上限を超えています。ブラウザ保存では限界があるため、バックアップ出力またはDB保存への切り替えが必要です。"
-        );
-      }
+    if (result === "saved_without_images") {
+      setMasterNotice(
+        "商品画像データが大きいため、画像を除いて商品マスタを保存しました。SKU/JAN/商品名/セット数/LT等のマスタ情報は保存されています。"
+      );
+      return;
+    }
+
+    if (result === "failed") {
+      setMasterNotice(
+        "商品マスタの保存容量が上限を超えています。ブラウザ保存では限界があるため、バックアップ出力またはDB保存への切り替えが必要です。"
+      );
     }
   }, [productMasters, mastersLoaded]);
 
