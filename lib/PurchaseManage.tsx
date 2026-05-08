@@ -55,7 +55,9 @@ export default function PurchaseManager({
   const [showPurchaseSkus, setShowPurchaseSkus] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [purchaseFormOpen, setPurchaseFormOpen] = useState(false);
-  const [purchaseForm, setPurchaseForm] = useState<PurchaseSkuItem>(EMPTY_PURCHASE_SKU_FORM);
+  const [purchaseForm, setPurchaseForm] = useState<PurchaseSkuItem>(
+    EMPTY_PURCHASE_SKU_FORM
+  );
 
   const handleAddPurchaseSku = () => {
     const purchaseSku = String(purchaseForm.purchase_sku ?? "").trim();
@@ -66,7 +68,8 @@ export default function PurchaseManager({
     }
 
     const duplicated = purchaseSkus.some(
-      (item) => item.purchase_sku.trim().toLowerCase() === purchaseSku.toLowerCase()
+      (item) =>
+        item.purchase_sku.trim().toLowerCase() === purchaseSku.toLowerCase()
     );
 
     if (duplicated) {
@@ -76,20 +79,31 @@ export default function PurchaseManager({
 
     const nextItem: PurchaseSkuItem = {
       purchase_sku: purchaseSku,
-      parent_jan: String(purchaseForm.parent_jan ?? "").replace(/\D/g, "").trim(),
+      parent_jan: String(purchaseForm.parent_jan ?? "")
+        .replace(/\D/g, "")
+        .trim(),
       color: String(purchaseForm.color ?? "").trim(),
       size: String(purchaseForm.size ?? "").trim(),
       ap_stock: Math.max(0, Math.floor(Number(purchaseForm.ap_stock) || 0)),
       moq: Math.max(0, Math.floor(Number((purchaseForm as any).moq) || 0)),
-      order_unit: Math.max(0, Math.floor(Number((purchaseForm as any).order_unit) || 0)),
-      recommended_order_qty: Math.max(0, Math.floor(Number(purchaseForm.recommended_order_qty) || 0)),
+      order_unit: Math.max(
+        0,
+        Math.floor(Number((purchaseForm as any).order_unit) || 0)
+      ),
+      recommended_order_qty: Math.max(
+        0,
+        Math.floor(Number(purchaseForm.recommended_order_qty) || 0)
+      ),
       url_1688: String(purchaseForm.url_1688 ?? "").trim(),
       enabled: true,
     } as PurchaseSkuItem;
 
     setPurchaseSkus((prev) =>
-      [...prev, nextItem].sort((a, b) => a.purchase_sku.localeCompare(b.purchase_sku))
+      [...prev, nextItem].sort((a, b) =>
+        a.purchase_sku.localeCompare(b.purchase_sku)
+      )
     );
+
     setPurchaseForm(EMPTY_PURCHASE_SKU_FORM);
     setPurchaseFormOpen(false);
   };
@@ -383,6 +397,7 @@ export default function PurchaseManager({
                             if (!purchaseSku) return;
 
                             const nextValue = event.target.value;
+
                             setManualPurchaseOrders((prev) => {
                               const next = { ...prev };
 

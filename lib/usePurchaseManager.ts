@@ -24,6 +24,19 @@ const DEFAULT_PURCHASE_SKUS: PurchaseSkuItem[] = [
   } as PurchaseSkuItem,
 ];
 
+const EMPTY_PURCHASE_SKU_FORM: PurchaseSkuItem = {
+  purchase_sku: "",
+  parent_jan: "",
+  color: "",
+  size: "",
+  ap_stock: 0,
+  moq: 0,
+  order_unit: 0,
+  recommended_order_qty: 0,
+  url_1688: "",
+  enabled: true,
+} as PurchaseSkuItem;
+
 type UsePurchaseManagerArgs = {
   rows: ComputedSkuRow[];
   productMasterBySku: Record<string, ProductMasterItem>;
@@ -40,6 +53,10 @@ export function usePurchaseManager({
   const [manualPurchaseOrders, setManualPurchaseOrders] = useState<
     Record<string, number>
   >({});
+  const [purchaseFormOpen, setPurchaseFormOpen] = useState(false);
+  const [purchaseForm, setPurchaseForm] = useState<PurchaseSkuItem>(
+    EMPTY_PURCHASE_SKU_FORM
+  );
 
   useEffect(() => {
     try {
@@ -55,8 +72,7 @@ export function usePurchaseManager({
               parent_jan: String(item?.parent_jan ?? "")
                 .replace(/\D/g, "")
                 .trim(),
-              parent_sku:
-                String(item?.parent_sku ?? "").trim() || undefined,
+              parent_sku: String(item?.parent_sku ?? "").trim() || undefined,
               color: String(item?.color ?? ""),
               size: String(item?.size ?? ""),
               ap_stock: Number(item?.ap_stock ?? 0) || 0,
@@ -91,6 +107,54 @@ export function usePurchaseManager({
     );
   }, [purchaseSkus, purchaseSkusLoaded]);
 
+  const handleAddPurchaseSku = () => {
+    const purchaseSku = String(purchaseForm.purchase_sku ?? "").trim();
+
+    if (!purchaseSku) {
+      alert("発注SKUを入力してください");
+      return;
+    }
+
+    const duplicated = purchaseSkus.some(
+      (item) =>
+        item.purchase_sku.trim().toLowerCase() === purchaseSku.toLowerCase()
+    );
+
+    if (duplicated) {
+      alert("同じ発注SKUがすでにあります");
+      return;
+    }
+
+    const nextItem: PurchaseSkuItem = {
+      purchase_sku: purchaseSku,
+      parent_jan: String(purchaseForm.parent_jan ?? "")
+        .replace(/\D/g, "")
+        .trim(),
+      color: String(purchaseForm.color ?? "").trim(),
+      size: String(purchaseForm.size ?? "").trim(),
+      ap_stock: Math.max(0, Math.floor(Number(purchaseForm.ap_stock) || 0)),
+      moq: Math.max(0, Math.floor(Number((purchaseForm as any).moq) || 0)),
+      order_unit: Math.max(
+        0,
+        Math.floor(Number((purchaseForm as any).order_unit) || 0)
+      ),
+      recommended_order_qty: Math.max(
+        0,
+        Math.floor(Number(purchaseForm.recommended_order_qty) || 0)
+      ),
+      url_1688: String(purchaseForm.url_1688 ?? "").trim(),
+      enabled: true,
+    } as PurchaseSkuItem;
+
+    setPurchaseSkus((prev) =>
+      [...prev, nextItem].sort((a, b) =>
+        a.purchase_sku.localeCompare(b.purchase_sku)
+      )
+    );
+    setPurchaseForm(EMPTY_PURCHASE_SKU_FORM);
+    setPurchaseFormOpen(false);
+  };
+
   const purchaseBreakdownRows = useMemo(
     () =>
       buildPurchaseBreakdownRows(
@@ -113,5 +177,10 @@ export function usePurchaseManager({
     purchaseSkuSummaryRows,
     manualPurchaseOrders,
     setManualPurchaseOrders,
+    purchaseFormOpen,
+    setPurchaseFormOpen,
+    purchaseForm,
+    setPurchaseForm,
+    handleAddPurchaseSku,
   };
 }
