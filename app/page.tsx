@@ -28,7 +28,7 @@ import {
 } from "@/lib/csv";
 import OrderTable from "@/components/OrderTable";
 import OrderCalendar from "@/components/OrderCalendar";
-import ProductMaster from "@/components/ProductMaster";
+import ProductMasterManage from "@/components/ProductMasterManage";
 import PurchaseManager from "@/lib/PurchaseManage";
 import { usePurchaseManager } from "@/lib/usePurchaseManager";
 
@@ -987,7 +987,7 @@ export default function HomePage() {
 
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
         {viewMode === "master" ? (
-          <ProductMaster
+          <ProductMasterManage
             masters={productMasters.map(normalizeProductMaster)}
             onChange={setProductMasters}
             onBack={() => setViewMode("table")}
