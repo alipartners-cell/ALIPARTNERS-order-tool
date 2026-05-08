@@ -5,13 +5,6 @@ import {
   normalizeJanKey,
 } from "@/lib/normalizers";
 
-import { computeAllRows, toRawRow } from "@/lib/calc";
-
-import {
-  getUnitPerSetFromMaster,
-  adjustRowsForSetUnits,
-} from "@/lib/rowCalculationEngine";
-
 import {
   mergeRawSkuRow,
   getMasterForCsvRow,
@@ -20,14 +13,8 @@ import {
 } from "@/lib/csvMergeEngine";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import type { ComputedSkuRow, OrderParams, RawSkuRow, ProductMasterItem, PurchaseSkuItem } from "@/types";
-
-import {
-buildPurchaseSkuSummaryRows,
-buildPurchaseBreakdownRows,
-type PurchaseBreakdownRow,
-type PurchaseSkuSummaryRow,
-} from "@/lib/purchaseEngine";
+import type { ComputedSkuRow, OrderParams, RawSkuRow, ProductMasterItem } from "@/types";
+import { computeAllRows, toRawRow } from "@/lib/calc";
 import {
   INSPECTION_ITEMS,
   parseCsvFile,
@@ -55,36 +42,6 @@ const DEFAULT_PARAMS: OrderParams = {
   fba_rsl_receiving_lt_days: 3,
   safety_stock_days: 15,
 };
-
-const PURCHASE_SKUS_STORAGE_KEY = "alipartners_purchase_skus";
-
-const DEFAULT_PURCHASE_SKUS: PurchaseSkuItem[] = [
-  {
-    purchase_sku: "PINK-L",
-    parent_jan: "4589999999999",
-    color: "粉色",
-    size: "L",
-    ap_stock: 120,
-    moq: 0,
-    order_unit: 0,
-    recommended_order_qty: 300,
-    url_1688: "https://detail.1688.com/offer/sample.html",
-    enabled: true,
-  } as PurchaseSkuItem,
-];
-
-const EMPTY_PURCHASE_SKU_FORM: PurchaseSkuItem = {
-  purchase_sku: "",
-  parent_jan: "",
-  color: "",
-  size: "",
-  ap_stock: 0,
-  moq: 0,
-  order_unit: 0,
-  recommended_order_qty: 0,
-  url_1688: "",
-  enabled: true,
-} as PurchaseSkuItem;
 
 
 type CsvLoadStatus = {
@@ -256,6 +213,48 @@ function makeDraftMasterFromCsv(row: RawSkuRow): ProductMasterItem {
   });
 }
 
+function getUnitPerSetFromMaster(master?: ProductMasterItem) {
+  const raw = Number((master as unknown as { unit_per_set?: unknown } | undefined)?.unit_per_set ?? 1);
+  return Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 1;
+}
+
+function adjustRowsForSetUnits(rows: ComputedSkuRow[], productMasterBySku: Record<string, ProductMasterItem>): ComputedSkuRow[] {
+  return rows.map((row) => {
+    const master = productMasterBySku[row.sku];
+    const unitPerSet = getUnitPerSetFromMaster(master);
+
+    const fbaRequiredSet = Number(row.fba_required_stock || 0);
+    const rslRequiredSet = Number(row.rsl_required_stock || 0);
+    const fbaStockSet = Number(row.amazon_stock || 0);
+    const rslStockSet = Number(row.rakuten_stock || 0);
+    const fbaInboundSet = Number(row.fba_inbound_plan || 0);
+    const rslInboundSet = Number(row.rsl_inbound_plan || 0);
+    const apStockEach = Number(row.ap_stock || 0);
+    const apStockSet = unitPerSet > 1 ? Math.floor(apStockEach / unitPerSet) : apStockEach;
+
+    const requiredTotalSet = fbaRequiredSet + rslRequiredSet;
+    const availableTotalSet = fbaStockSet + rslStockSet + fbaInboundSet + rslInboundSet + apStockSet;
+    const shortageSet = Math.max(0, requiredTotalSet - availableTotalSet);
+    const recommendedOrderQtyBara = shortageSet * unitPerSet;
+    const status: ComputedSkuRow["status"] = shortageSet > 0
+      ? "発注推奨"
+      : row.fba_recommended_delivery_qty > 0 || row.rsl_recommended_delivery_qty > 0
+        ? "納品推奨"
+        : "対応不要";
+
+    const next = {
+      ...row,
+      ...({ unit_per_set: unitPerSet } as unknown as Partial<ComputedSkuRow>),
+      // shortage_qty はセット単位。中国発注数は個（バラ）単位。
+      shortage_qty: shortageSet,
+      recommended_order_qty: recommendedOrderQtyBara,
+      status,
+    };
+
+    return next;
+  });
+}
+
 export default function HomePage() {
   const [params, setParams] = useState<OrderParams>(DEFAULT_PARAMS);
   const [appliedParams, setAppliedParams] = useState<OrderParams>(DEFAULT_PARAMS);
@@ -283,11 +282,6 @@ export default function HomePage() {
   const [exportOrderQty, setExportOrderQty] = useState<Record<string, number>>({});
   const [masterNotice, setMasterNotice] = useState("");
   const [csvLoadStatus, setCsvLoadStatus] = useState<CsvLoadStatus>(EMPTY_CSV_LOAD_STATUS);
-  const [purchaseSkus, setPurchaseSkus] = useState<PurchaseSkuItem[]>(DEFAULT_PURCHASE_SKUS);
-  const [purchaseSkusLoaded, setPurchaseSkusLoaded] = useState(false);
-  const [purchaseFormOpen, setPurchaseFormOpen] = useState(false);
-  const [purchaseForm, setPurchaseForm] = useState<PurchaseSkuItem>(EMPTY_PURCHASE_SKU_FORM);
-  const [manualPurchaseOrders, setManualPurchaseOrders] = useState<Record<string, number>>({});
 
   useEffect(() => {
     try {
@@ -320,48 +314,12 @@ export default function HomePage() {
     }
   }, []);
 
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(PURCHASE_SKUS_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          const normalized = parsed
-            .map((item): PurchaseSkuItem => ({
-              purchase_sku: String(item?.purchase_sku ?? "").trim(),
-              parent_jan: String(item?.parent_jan ?? "").replace(/\D/g, "").trim(),
-              parent_sku: String(item?.parent_sku ?? "").trim() || undefined,
-              color: String(item?.color ?? ""),
-              size: String(item?.size ?? ""),
-              ap_stock: Number(item?.ap_stock ?? 0) || 0,
-              moq: Number(item?.moq ?? 0) || 0,
-              order_unit: Number(item?.order_unit ?? 0) || 0,
-              theoretical_stock: Number(item?.theoretical_stock ?? 0) || 0,
-              recommended_order_qty: Number(item?.recommended_order_qty ?? 0) || 0,
-              url_1688: String(item?.url_1688 ?? ""),
-              enabled: item?.enabled !== false,
-            } as PurchaseSkuItem))
-            .filter((item) => item.purchase_sku);
-
-          setPurchaseSkus(normalized.length > 0 ? normalized : DEFAULT_PURCHASE_SKUS);
-        }
-      }
-    } catch {
-      // localStorage load failed; keep default purchase SKUs.
-    } finally {
-      setPurchaseSkusLoaded(true);
-    }
-  }, []);
 
   useEffect(() => {
     if (!rowOverridesLoaded) return;
     window.localStorage.setItem("alipartners_row_overrides", JSON.stringify(rowOverrides));
   }, [rowOverrides, rowOverridesLoaded]);
 
-  useEffect(() => {
-    if (!purchaseSkusLoaded) return;
-    window.localStorage.setItem(PURCHASE_SKUS_STORAGE_KEY, JSON.stringify(purchaseSkus));
-  }, [purchaseSkus, purchaseSkusLoaded]);
 
   useEffect(() => {
     if (!mastersLoaded) return;
@@ -473,6 +431,18 @@ export default function HomePage() {
 
     return computeAllRows(baseRows, appliedParams);
   }, [productMasters, csvRowBySku, csvRowByJan, appliedParams, productMasterBySku]);
+
+  const {
+    purchaseSkus,
+    setPurchaseSkus,
+    purchaseBreakdownRows,
+    purchaseSkuSummaryRows,
+    manualPurchaseOrders,
+    setManualPurchaseOrders,
+  } = usePurchaseManager({
+    rows,
+    productMasterBySku,
+  });
 
   const csvMatchedCount = useMemo(() => {
     return csvRows.filter((row) => productMasterBySku[row.sku]).length;
@@ -969,26 +939,6 @@ export default function HomePage() {
       .filter((row): row is ComputedSkuRow => Boolean(row));
   }, [rows, tableDisplayedSkus]);
 
-const purchaseBreakdownRows = useMemo<PurchaseBreakdownRow[]>(
-  () =>
-    buildPurchaseBreakdownRows(
-      rows,
-      productMasterBySku,
-      purchaseSkus
-    ),
-  [rows, productMasterBySku, purchaseSkus]
-);
-
-  const purchaseSkuSummaryRows = useMemo<PurchaseSkuSummaryRow[]>(
-    () => buildPurchaseSkuSummaryRows(purchaseBreakdownRows, purchaseSkus),
-    [purchaseBreakdownRows, purchaseSkus]
-  );
-
-  const purchaseSkuSummaryBySku = useMemo(() => {
-    return new Map(
-      purchaseSkuSummaryRows.map((item) => [String(item.purchase_sku ?? "").trim(), item] as const)
-    );
-  }, [purchaseSkuSummaryRows]);
 
   const tableAllChecked = tableDisplayedSkus.length > 0 && tableDisplayedSkus.every((sku) => selected.has(sku));
   const tableSomeChecked = tableDisplayedSkus.some((sku) => selected.has(sku));
@@ -1006,43 +956,6 @@ const purchaseBreakdownRows = useMemo<PurchaseBreakdownRow[]>(
   const openProductMasterForSku = (sku: string) => {
     setMasterFocusSku(sku);
     setViewMode("master");
-  };
-
-  const handleAddPurchaseSku = () => {
-    const purchaseSku = String(purchaseForm.purchase_sku ?? "").trim();
-
-    if (!purchaseSku) {
-      alert("発注SKUを入力してください");
-      return;
-    }
-
-    const duplicated = purchaseSkus.some(
-      (item) => item.purchase_sku.trim().toLowerCase() === purchaseSku.toLowerCase()
-    );
-
-    if (duplicated) {
-      alert("同じ発注SKUがすでにあります");
-      return;
-    }
-
-    const nextItem: PurchaseSkuItem = {
-      purchase_sku: purchaseSku,
-      parent_jan: String(purchaseForm.parent_jan ?? "").replace(/\D/g, "").trim(),
-      color: String(purchaseForm.color ?? "").trim(),
-      size: String(purchaseForm.size ?? "").trim(),
-      ap_stock: Math.max(0, Math.floor(Number(purchaseForm.ap_stock) || 0)),
-      moq: Math.max(0, Math.floor(Number((purchaseForm as any).moq) || 0)),
-      order_unit: Math.max(0, Math.floor(Number((purchaseForm as any).order_unit) || 0)),
-      recommended_order_qty: Math.max(0, Math.floor(Number(purchaseForm.recommended_order_qty) || 0)),
-      url_1688: String(purchaseForm.url_1688 ?? "").trim(),
-      enabled: true,
-    } as PurchaseSkuItem;
-
-    setPurchaseSkus((prev) =>
-      [...prev, nextItem].sort((a, b) => a.purchase_sku.localeCompare(b.purchase_sku))
-    );
-    setPurchaseForm(EMPTY_PURCHASE_SKU_FORM);
-    setPurchaseFormOpen(false);
   };
 
   return (
@@ -1208,435 +1121,16 @@ const purchaseBreakdownRows = useMemo<PurchaseBreakdownRow[]>(
                   expandedSkus={tableExpandedSkus}
                   onToggleExpanded={toggleTableExpanded}
                 />
-              
               ) : viewMode === "purchase" ? (
-                <>
-
-                {/* <PurchaseManager /> */}
-
-                <div className="p-6">
-                  <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-                    <div className="mb-4 flex items-start justify-between gap-4">
-                      <div>
-                        <h2 className="text-lg font-black text-gray-900">発注管理</h2>
-                        <p className="mt-2 text-sm font-semibold text-gray-500">
-                          発注SKU管理準備中。単品・セット構成品・付属品など、中国へ発注する商品単位をここでまとめて管理する予定です。
-                        </p>
-                      </div>
-                      <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
-                        準備中
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                        <p className="text-xs font-black text-gray-500">管理対象</p>
-                        <p className="mt-2 text-sm font-bold text-gray-900">発注SKU</p>
-                      </div>
-                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                        <p className="text-xs font-black text-gray-500">在庫</p>
-                        <p className="mt-2 text-sm font-bold text-gray-900">AP在庫 / 理論在庫</p>
-                      </div>
-                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                        <p className="text-xs font-black text-gray-500">出力</p>
-                        <p className="mt-2 text-sm font-bold text-gray-900">中国発注数</p>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 overflow-hidden rounded-xl border border-gray-200 bg-white">
-                      <div className="flex items-center justify-between gap-4 border-b border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                          <p className="text-sm font-black text-gray-900">発注SKU一覧</p>
-                          <p className="mt-1 text-xs font-semibold text-gray-500">
-                            手動で発注SKUを追加できます。商品マスタ連携・自動計算はまだ行いません。
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-bold text-gray-500">
-                            {purchaseSkus.length.toLocaleString()}件
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setPurchaseFormOpen((v) => !v)}
-                            className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-500"
-                          >
-                            {purchaseFormOpen ? "追加フォームを閉じる" : "＋ 発注SKU追加"}
-                          </button>
-                        </div>
-                      </div>
-
-                      {purchaseFormOpen && (
-                        <div className="border-b border-gray-200 bg-white p-4">
-                          <div className="mb-3 flex items-center justify-between">
-                            <div>
-                              <p className="text-sm font-black text-gray-900">発注SKUを追加</p>
-                              <p className="mt-1 text-xs font-semibold text-gray-500">
-                                まずは手動登録だけです。登録内容はブラウザに保存されます。
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setPurchaseForm(EMPTY_PURCHASE_SKU_FORM)}
-                              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
-                            >
-                              クリア
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-4 gap-3">
-                            <label className="block">
-                              <span className="mb-1 block text-xs font-bold text-gray-500">発注SKU（必須）</span>
-                              <input
-                                value={purchaseForm.purchase_sku}
-                                onChange={(e) => setPurchaseForm({ ...purchaseForm, purchase_sku: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                              />
-                            </label>
-
-                            <label className="block">
-                              <span className="mb-1 block text-xs font-bold text-gray-500">親JAN</span>
-                              <input
-                                value={purchaseForm.parent_jan}
-                                onChange={(e) => setPurchaseForm({ ...purchaseForm, parent_jan: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                              />
-                            </label>
-
-                            <label className="block">
-                              <span className="mb-1 block text-xs font-bold text-gray-500">色</span>
-                              <input
-                                value={purchaseForm.color ?? ""}
-                                onChange={(e) => setPurchaseForm({ ...purchaseForm, color: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                              />
-                            </label>
-
-                            <label className="block">
-                              <span className="mb-1 block text-xs font-bold text-gray-500">サイズ</span>
-                              <input
-                                value={purchaseForm.size ?? ""}
-                                onChange={(e) => setPurchaseForm({ ...purchaseForm, size: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                              />
-                            </label>
-
-                            <label className="block">
-                              <span className="mb-1 block text-xs font-bold text-gray-500">AP在庫</span>
-                              <input
-                                type="number"
-                                min={0}
-                                value={purchaseForm.ap_stock ?? 0}
-                                onChange={(e) => setPurchaseForm({ ...purchaseForm, ap_stock: Number(e.target.value) || 0 })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                              />
-                            </label>
-
-                            <label className="block">
-                              <span className="mb-1 block text-xs font-bold text-gray-500">MOQ</span>
-                              <input
-                                type="number"
-                                min={0}
-                                value={Number((purchaseForm as any).moq ?? 0)}
-                                onChange={(e) => setPurchaseForm({ ...purchaseForm, moq: Number(e.target.value) || 0 } as PurchaseSkuItem)}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                              />
-                            </label>
-
-                            <label className="block">
-                              <span className="mb-1 block text-xs font-bold text-gray-500">発注単位</span>
-                              <input
-                                type="number"
-                                min={0}
-                                value={Number((purchaseForm as any).order_unit ?? 0)}
-                                onChange={(e) => setPurchaseForm({ ...purchaseForm, order_unit: Number(e.target.value) || 0 } as PurchaseSkuItem)}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                              />
-                            </label>
-
-                            <label className="block">
-                              <span className="mb-1 block text-xs font-bold text-gray-500">中国発注数</span>
-                              <input
-                                type="number"
-                                min={0}
-                                value={purchaseForm.recommended_order_qty ?? 0}
-                                onChange={(e) => setPurchaseForm({ ...purchaseForm, recommended_order_qty: Number(e.target.value) || 0 })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                              />
-                            </label>
-
-                            <label className="col-span-2 block">
-                              <span className="mb-1 block text-xs font-bold text-gray-500">1688URL</span>
-                              <input
-                                value={purchaseForm.url_1688 ?? ""}
-                                onChange={(e) => setPurchaseForm({ ...purchaseForm, url_1688: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                              />
-                            </label>
-                          </div>
-
-                          <div className="mt-4 flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setPurchaseFormOpen(false)}
-                              className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
-                            >
-                              キャンセル
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleAddPurchaseSku}
-                              className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-500"
-                            >
-                              発注SKUを登録
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="overflow-auto">
-                        <table className="w-full min-w-[980px] text-left text-xs">
-                          <thead className="bg-gray-50 text-gray-500">
-                            <tr className="border-b border-gray-200">
-                              <th className="px-3 py-2">発注SKU</th>
-                              <th className="px-3 py-2">親JAN</th>
-                              <th className="px-3 py-2">色</th>
-                              <th className="px-3 py-2">サイズ</th>
-                              <th className="px-3 py-2 text-right">AP在庫</th>
-                              <th className="px-3 py-2 text-right">MOQ</th>
-                              <th className="px-3 py-2 text-right">発注単位</th>
-                              <th className="px-3 py-2 text-right">中国発注数 / 提案値</th>
-                              <th className="px-3 py-2">1688URL</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {purchaseSkus.length === 0 ? (
-                              <tr>
-                                <td colSpan={7} className="px-3 py-10 text-center text-sm font-bold text-gray-400">
-                                  発注SKUデータはまだありません。次の工程で商品マスタとの紐づけ方法を確定します。
-                                </td>
-                              </tr>
-                            ) : (
-                              purchaseSkus.map((item) => {
-                                const purchaseSku = String(item.purchase_sku ?? "").trim();
-                                const summary = purchaseSkuSummaryBySku.get(purchaseSku);
-                                const suggestedShortageQty = Number(summary?.shortage_qty ?? 0) || 0;
-                                const suggestedOrderQty = Number(summary?.recommended_order_qty ?? suggestedShortageQty) || 0;
-                                const itemMoq = Number((item as any).moq ?? 0) || 0;
-                                const itemOrderUnit = Number((item as any).order_unit ?? 0) || 0;
-                                const manualOrderQty = manualPurchaseOrders[purchaseSku] ?? Number(item.recommended_order_qty || 0);
-
-                                return (
-                                  <tr key={item.purchase_sku} className="border-b border-gray-100 hover:bg-indigo-50/30">
-                                    <td className="px-3 py-3 font-mono font-bold text-gray-900">{item.purchase_sku}</td>
-                                    <td className="px-3 py-3 font-mono text-gray-600">{item.parent_jan || "-"}</td>
-                                    <td className="px-3 py-3 text-gray-700">{item.color || "-"}</td>
-                                    <td className="px-3 py-3 text-gray-700">{item.size || "-"}</td>
-                                    <td className="px-3 py-3 text-right font-bold text-gray-900">{Number(item.ap_stock || 0).toLocaleString()}</td>
-                                    <td className="px-3 py-3 text-right font-bold text-gray-700">{itemMoq.toLocaleString()}</td>
-                                    <td className="px-3 py-3 text-right font-bold text-gray-700">{itemOrderUnit.toLocaleString()}</td>
-                                    <td className="px-3 py-3 text-right">
-                                      <input
-                                        type="number"
-                                        min={0}
-                                        value={Number(manualOrderQty || 0)}
-                                        onChange={(e) => {
-                                          if (!purchaseSku) return;
-                                          const nextQty = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                                          setManualPurchaseOrders((prev) => ({
-                                            ...prev,
-                                            [purchaseSku]: nextQty,
-                                          }));
-                                        }}
-                                        className="ml-auto w-28 rounded-lg border border-gray-300 px-2 py-1 text-right text-xs font-bold text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                                      />
-                                      <div className="mt-1 text-[11px] font-black text-indigo-700">
-                                        推奨：{suggestedOrderQty.toLocaleString()}
-                                      </div>
-                                      <div className="mt-0.5 text-[10px] font-bold text-amber-700">
-                                        不足：{suggestedShortageQty.toLocaleString()}
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (!purchaseSku) return;
-                                          setManualPurchaseOrders((prev) => ({
-                                            ...prev,
-                                            [purchaseSku]: suggestedOrderQty,
-                                          }));
-                                        }}
-                                        disabled={!purchaseSku || suggestedOrderQty <= 0}
-                                        className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40"
-                                      >
-                                        提案値を採用
-                                      </button>
-                                    </td>
-                                    <td className="max-w-[320px] px-3 py-3">
-                                    {item.url_1688 ? (
-                                      <a
-                                        href={item.url_1688}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="block truncate text-indigo-600 underline underline-offset-2"
-                                      >
-                                        {item.url_1688}
-                                      </a>
-                                    ) : (
-                                      <span className="text-gray-400">-</span>
-                                    )}
-                                    </td>
-                                  </tr>
-                                );
-                              })
-                            )}
-                          </tbody>
-                        </table>
-
-
-                    <div className="mt-5 overflow-hidden rounded-xl border border-gray-200 bg-white">
-                      <div className="flex items-center justify-between gap-4 border-b border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                          <p className="text-sm font-black text-gray-900">構成分解プレビュー</p>
-                          <p className="mt-1 text-xs font-semibold text-gray-500">
-                            販売管理の不足セット数を、商品マスタの構成発注SKUへ分解して表示します。AP在庫差引・自動保存はまだ行いません。
-                          </p>
-                        </div>
-                        <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-bold text-gray-500">
-                          {purchaseBreakdownRows.length.toLocaleString()}件
-                        </span>
-                      </div>
-
-                      <div className="overflow-auto">
-                        <table className="w-full min-w-[1080px] text-left text-xs">
-                          <thead className="bg-gray-50 text-gray-500">
-                            <tr className="border-b border-gray-200">
-                              <th className="px-3 py-2">販売SKU</th>
-                              <th className="px-3 py-2">販売JAN</th>
-                              <th className="px-3 py-2">商品名</th>
-                              <th className="px-3 py-2 text-right">不足セット数</th>
-                              <th className="px-3 py-2">構成発注SKU</th>
-                              <th className="px-3 py-2 text-right">構成数量</th>
-                              <th className="px-3 py-2 text-right">必要数量</th>
-                              <th className="px-3 py-2">状態</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {purchaseBreakdownRows.length === 0 ? (
-                              <tr>
-                                <td colSpan={8} className="px-3 py-10 text-center text-sm font-bold text-gray-400">
-                                  分解対象はまだありません。発注推奨がある販売SKUに、商品マスタで構成発注SKUを設定するとここに表示されます。
-                                </td>
-                              </tr>
-                            ) : (
-                              purchaseBreakdownRows.map((item, index) => (
-                                <tr key={`${item.sales_sku}-${item.component_purchase_sku}-${index}`} className="border-b border-gray-100 hover:bg-indigo-50/30">
-                                  <td className="px-3 py-3 font-mono font-bold text-gray-900">{item.sales_sku}</td>
-                                  <td className="px-3 py-3 font-mono text-gray-600">{item.sales_jan || "-"}</td>
-                                  <td className="max-w-[260px] px-3 py-3 font-bold text-gray-700">
-                                    <div className="truncate">{item.product_name || "-"}</div>
-                                  </td>
-                                  <td className="px-3 py-3 text-right font-bold text-gray-900">{item.shortage_set_qty.toLocaleString()}</td>
-                                  <td className="px-3 py-3 font-mono font-bold text-indigo-700">{item.component_purchase_sku}</td>
-                                  <td className="px-3 py-3 text-right font-bold text-gray-700">× {item.component_qty.toLocaleString()}</td>
-                                  <td className="px-3 py-3 text-right font-black text-indigo-700">{item.required_qty.toLocaleString()}</td>
-                                  <td className="px-3 py-3">
-                                    {item.is_registered_purchase_sku ? (
-                                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">発注SKU登録済み</span>
-                                    ) : (
-                                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">発注SKU未登録</span>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 overflow-hidden rounded-xl border border-gray-200 bg-white">
-                      <div className="flex items-center justify-between gap-4 border-b border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                          <p className="text-sm font-black text-gray-900">発注SKU別 必要数集計</p>
-                          <p className="mt-1 text-xs font-semibold text-gray-500">
-                            構成分解プレビューを発注SKU単位で合計します。AP在庫差引後の不足数にMOQ・発注単位を適用した推奨発注数を表示します。自動保存はまだ行いません。
-                          </p>
-                        </div>
-                        <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-bold text-gray-500">
-                          {purchaseSkuSummaryRows.length.toLocaleString()}件
-                        </span>
-                      </div>
-
-                      <div className="overflow-auto">
-                        <table className="w-full min-w-[980px] text-left text-xs">
-                          <thead className="bg-gray-50 text-gray-500">
-                            <tr className="border-b border-gray-200">
-                              <th className="px-3 py-2">発注SKU</th>
-                              <th className="px-3 py-2">色</th>
-                              <th className="px-3 py-2">サイズ</th>
-                              <th className="px-3 py-2 text-right">合計必要数</th>
-                              <th className="px-3 py-2 text-right">AP在庫</th>
-                              <th className="px-3 py-2 text-right">不足数（仮）</th>
-                              <th className="px-3 py-2 text-right">MOQ</th>
-                              <th className="px-3 py-2 text-right">発注単位</th>
-                              <th className="px-3 py-2 text-right">推奨発注数</th>
-                              <th className="px-3 py-2">状態</th>
-                              <th className="px-3 py-2">1688URL</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {purchaseSkuSummaryRows.length === 0 ? (
-                              <tr>
-                                <td colSpan={11} className="px-3 py-10 text-center text-sm font-bold text-gray-400">
-                                  発注SKU別の集計対象はまだありません。構成分解プレビューに行が出ると、ここへ発注SKU単位で合計表示されます。
-                                </td>
-                              </tr>
-                            ) : (
-                              purchaseSkuSummaryRows.map((item) => (
-                                <tr key={item.purchase_sku} className="border-b border-gray-100 hover:bg-indigo-50/30">
-                                  <td className="px-3 py-3 font-mono font-bold text-gray-900">{item.purchase_sku}</td>
-                                  <td className="px-3 py-3 text-gray-700">{item.color || "-"}</td>
-                                  <td className="px-3 py-3 text-gray-700">{item.size || "-"}</td>
-                                  <td className="px-3 py-3 text-right font-black text-indigo-700">{Number(item.total_required_qty || 0).toLocaleString()}</td>
-                                  <td className="px-3 py-3 text-right font-bold text-gray-900">{Number(item.ap_stock || 0).toLocaleString()}</td>
-                                  <td className="px-3 py-3 text-right font-black text-amber-700">{Number(item.shortage_qty || 0).toLocaleString()}</td>
-                                  <td className="px-3 py-3 text-right font-bold text-gray-700">{Number(item.moq || 0).toLocaleString()}</td>
-                                  <td className="px-3 py-3 text-right font-bold text-gray-700">{Number(item.order_unit || 0).toLocaleString()}</td>
-                                  <td className="px-3 py-3 text-right font-black text-indigo-700">{Number(item.recommended_order_qty || 0).toLocaleString()}</td>
-                                  <td className="px-3 py-3">
-                                    {item.is_registered_purchase_sku ? (
-                                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">発注SKU登録済み</span>
-                                    ) : (
-                                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">発注SKU未登録</span>
-                                    )}
-                                  </td>
-                                  <td className="max-w-[260px] px-3 py-3">
-                                    {item.url_1688 ? (
-                                      <a
-                                        href={item.url_1688}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="block truncate text-indigo-600 underline underline-offset-2"
-                                      >
-                                        {item.url_1688}
-                                      </a>
-                                    ) : (
-                                      <span className="text-gray-400">-</span>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </>
+                <PurchaseManager
+                  purchaseSkus={purchaseSkus}
+                  setPurchaseSkus={setPurchaseSkus}
+                  purchaseBreakdownRows={purchaseBreakdownRows}
+                  purchaseSkuSummaryRows={purchaseSkuSummaryRows}
+                  manualPurchaseOrders={manualPurchaseOrders}
+                  setManualPurchaseOrders={setManualPurchaseOrders}
+                />
               ) : viewMode === "apStock" ? (
-
                 <ApStockView
                   rows={rows}
                   productMasters={productMasterBySku}
