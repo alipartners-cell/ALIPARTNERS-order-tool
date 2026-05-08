@@ -44,6 +44,58 @@ function getFormNumber(value: unknown) {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
+function escapeCsvValue(value: unknown) {
+  const text = String(value ?? "");
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function parseCsvLine(line: string) {
+  const values: string[] = [];
+  let current = "";
+  let quoted = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+
+    if (char === '"') {
+      if (quoted && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        quoted = !quoted;
+      }
+      continue;
+    }
+
+    if (char === "," && !quoted) {
+      values.push(current);
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  values.push(current);
+  return values;
+}
+
+function downloadTextFile(content: string, filename: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 export default function PurchaseManager({
   purchaseSkus,
   setPurchaseSkus,
@@ -108,6 +160,220 @@ export default function PurchaseManager({
     if (editingPurchaseSku === target) {
       resetPurchaseForm();
     }
+  };
+
+  const handleExportPurchaseSkusCsv = () => {
+    const headers = [
+      "purchase_sku",
+      "parent_jan",
+      "color",
+      "size",
+      "ap_stock",
+      "moq",
+      "order_unit",
+      "recommended_order_qty",
+      "url_1688",
+      "enabled",
+    ];
+
+    const rows = purchaseSkus.map((item) => [
+      item.purchase_sku,
+      item.parent_jan,
+      item.color,
+      item.size,
+      item.ap_stock,
+      (item as any).moq,
+      (item as any).order_unit,
+      item.recommended_order_qty,
+      item.url_1688,
+      item.enabled !== false ? "true" : "false",
+    ]);
+
+    const csv =
+      "\ufeff" +
+      [headers, ...rows]
+        .map((row) => row.map(escapeCsvValue).join(","))
+        .join("\n");
+
+    const ts = new Date().toISOString().slice(0, 10);
+    downloadTextFile(
+      csv,
+      `purchase_skus_${ts}.csv`,
+      "text/csv;charset=utf-8"
+    );
+  };
+
+  const normalizeImportedPurchaseSku = (
+    raw: Record<string, string>
+  ): PurchaseSkuItem => {
+    return {
+      purchase_sku: String(raw.purchase_sku ?? "").trim(),
+      parent_jan: String(raw.parent_jan ?? "").replace(/\D/g, "").trim(),
+      color: String(raw.color ?? "").trim(),
+      size: String(raw.size ?? "").trim(),
+      ap_stock: Math.max(0, Math.floor(Number(raw.ap_stock) || 0)),
+      moq: Math.max(0, Math.floor(Number(raw.moq) || 0)),
+      order_unit: Math.max(0, Math.floor(Number(raw.order_unit) || 0)),
+      recommended_order_qty: Math.max(
+        0,
+        Math.floor(Number(raw.recommended_order_qty) || 0)
+      ),
+      url_1688: String(raw.url_1688 ?? "").trim(),
+      enabled: String(raw.enabled ?? "true").toLowerCase() !== "false",
+    } as PurchaseSkuItem;
+  };
+
+  const handleImportPurchaseSkusCsv = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".csv,text/csv";
+
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+
+      try {
+        const text = (await file.text()).replace(/^\ufeff/, "");
+        const lines = text
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+
+        if (lines.length < 2) {
+          alert("CSVに取込対象データがありません");
+          return;
+        }
+
+        const headers = parseCsvLine(lines[0]).map((header) =>
+          header.trim()
+        );
+
+        const imported = lines
+          .slice(1)
+          .map((line) => {
+            const values = parseCsvLine(line);
+            const raw: Record<string, string> = {};
+
+            headers.forEach((header, index) => {
+              raw[header] = values[index] ?? "";
+            });
+
+            return normalizeImportedPurchaseSku(raw);
+          })
+          .filter((item) => item.purchase_sku);
+
+        if (imported.length === 0) {
+          alert("有効な発注SKUがありません");
+          return;
+        }
+
+        const ok = window.confirm(
+          `CSVから${imported.length}件を取り込みます。既存の発注SKU一覧を置き換えますか？`
+        );
+        if (!ok) return;
+
+        setPurchaseSkus(
+          imported.sort((a, b) =>
+            String(a.purchase_sku ?? "").localeCompare(
+              String(b.purchase_sku ?? "")
+            )
+          )
+        );
+        setManualPurchaseOrders({});
+        resetPurchaseForm();
+      } catch {
+        alert("CSVの読み込みに失敗しました");
+      }
+    };
+
+    input.click();
+  };
+
+  const handleExportPurchaseBackup = () => {
+    const backup = {
+      version: 1,
+      exported_at: new Date().toISOString(),
+      purchase_skus: purchaseSkus,
+      manual_purchase_orders: manualPurchaseOrders,
+    };
+
+    const ts = new Date().toISOString().slice(0, 10);
+    downloadTextFile(
+      JSON.stringify(backup, null, 2),
+      `purchase_backup_${ts}.json`,
+      "application/json;charset=utf-8"
+    );
+  };
+
+  const handleImportPurchaseBackup = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+
+      try {
+        const parsed = JSON.parse(await file.text());
+        const rawItems = Array.isArray(parsed?.purchase_skus)
+          ? parsed.purchase_skus
+          : [];
+        const rawManualOrders =
+          parsed?.manual_purchase_orders &&
+          typeof parsed.manual_purchase_orders === "object"
+            ? parsed.manual_purchase_orders
+            : {};
+
+        const imported = rawItems
+          .map((item: any) =>
+            normalizeImportedPurchaseSku({
+              purchase_sku: String(item?.purchase_sku ?? ""),
+              parent_jan: String(item?.parent_jan ?? ""),
+              color: String(item?.color ?? ""),
+              size: String(item?.size ?? ""),
+              ap_stock: String(item?.ap_stock ?? 0),
+              moq: String(item?.moq ?? 0),
+              order_unit: String(item?.order_unit ?? 0),
+              recommended_order_qty: String(item?.recommended_order_qty ?? 0),
+              url_1688: String(item?.url_1688 ?? ""),
+              enabled: item?.enabled === false ? "false" : "true",
+            })
+          )
+          .filter((item: PurchaseSkuItem) => item.purchase_sku);
+
+        if (imported.length === 0) {
+          alert("バックアップ内に有効な発注SKUがありません");
+          return;
+        }
+
+        const ok = window.confirm(
+          `バックアップから${imported.length}件を復元します。現在の発注SKU一覧を置き換えますか？`
+        );
+        if (!ok) return;
+
+        const nextManualOrders: Record<string, number> = {};
+        Object.entries(rawManualOrders).forEach(([key, value]) => {
+          const purchaseSku = String(key ?? "").trim();
+          const qty = Math.max(0, Math.floor(Number(value) || 0));
+          if (purchaseSku) nextManualOrders[purchaseSku] = qty;
+        });
+
+        setPurchaseSkus(
+          imported.sort((a: PurchaseSkuItem, b: PurchaseSkuItem) =>
+            String(a.purchase_sku ?? "").localeCompare(
+              String(b.purchase_sku ?? "")
+            )
+          )
+        );
+        setManualPurchaseOrders(nextManualOrders);
+        resetPurchaseForm();
+      } catch {
+        alert("バックアップの読み込みに失敗しました");
+      }
+    };
+
+    input.click();
   };
 
   const handleAddPurchaseSku = () => {
@@ -192,17 +458,51 @@ export default function PurchaseManager({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setPurchaseFormOpen((v) => !v)}
-            className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-500"
-          >
-            {purchaseFormOpen
-              ? editingPurchaseSku
-                ? "発注SKU編集を閉じる ▲"
-                : "発注SKU追加を閉じる ▲"
-              : "発注SKUを追加 ▼"}
-          </button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleExportPurchaseSkusCsv}
+              className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+            >
+              CSV出力
+            </button>
+
+            <button
+              type="button"
+              onClick={handleImportPurchaseSkusCsv}
+              className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50"
+            >
+              CSV取込
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportPurchaseBackup}
+              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50"
+            >
+              バックアップ
+            </button>
+
+            <button
+              type="button"
+              onClick={handleImportPurchaseBackup}
+              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50"
+            >
+              復元
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPurchaseFormOpen((v) => !v)}
+              className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-500"
+            >
+              {purchaseFormOpen
+                ? editingPurchaseSku
+                  ? "発注SKU編集を閉じる ▲"
+                  : "発注SKU追加を閉じる ▲"
+                : "発注SKUを追加 ▼"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -358,7 +658,7 @@ export default function PurchaseManager({
               onClick={handleAddPurchaseSku}
               className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-500"
             >
-              追加する
+              {editingPurchaseSku ? "更新する" : "追加する"}
             </button>
           </div>
         </div>
