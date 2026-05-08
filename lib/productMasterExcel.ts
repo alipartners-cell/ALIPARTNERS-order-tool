@@ -213,6 +213,12 @@ function buildMasterWorkbook(rows: Record<string, unknown>[]) {
   return workbook;
 }
 
+
+
+function downloadWorkbook(workbook: XLSX.WorkBook, filename: string) {
+  XLSX.writeFile(workbook, filename);
+}
+
 function readXlsxRows(file: File): Promise<Record<string, unknown>[]> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -254,5 +260,6 @@ export {
   MASTER_TEMPLATE_SAMPLE,
   masterItemToXlsxRow,
   buildMasterWorkbook,
+  downloadWorkbook,
   readXlsxRows,
 };

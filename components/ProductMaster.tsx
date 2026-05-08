@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ProductMasterItem, PurchaseSkuItem } from "@/types";
-import * as XLSX from "xlsx";
 import { INSPECTION_ITEMS, type InspectionItem } from "@/lib/csv";
 import {
   MASTER_TEMPLATE_SAMPLE,
   masterItemToXlsxRow,
   buildMasterWorkbook,
+  downloadWorkbook,
   readXlsxRows,
   type ProductMasterItemWithSet,
 } from "@/lib/productMasterExcel";
@@ -382,13 +382,13 @@ export default function ProductMaster({
 
   const exportXlsxTemplate = () => {
     const workbook = buildMasterWorkbook(MASTER_TEMPLATE_SAMPLE);
-    XLSX.writeFile(workbook, "product_master_template.xlsx");
+    downloadWorkbook(workbook, "product_master_template.xlsx");
   };
 
   const exportXlsx = () => {
     const rows = normalizedMasters.map((item) => masterItemToXlsxRow(item));
     const workbook = buildMasterWorkbook(rows);
-    XLSX.writeFile(workbook, `product_master_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    downloadWorkbook(workbook, `product_master_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   const importXlsx = async (file: File) => {
