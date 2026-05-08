@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import MasterPreviewModal from "@/components/MasterPreviewModal";
 import SkuSettingsModal from "@/components/SkuSettingsModal";
+import DecisionCell from "@/components/order-table/DecisionCell";
+import StatusStack from "@/components/order-table/StatusStack";
 
 import type {
   ComputedSkuRow,
@@ -60,62 +62,6 @@ function setEquivalent(value: number, unitPerSet: number) {
   return `約${sets.toLocaleString()}セット相当`;
 }
 
-function StatusStack({ row }: { row: ComputedSkuRow }) {
-  const hasOrder = row.recommended_order_qty > 0 || row.status === "発注推奨";
-  const hasDelivery = row.fba_recommended_delivery_qty > 0 || row.rsl_recommended_delivery_qty > 0;
-  const noAction = !hasOrder && !hasDelivery;
-  const items = [
-    { label: "発注推奨", active: hasOrder, activeClass: "border-red-200 bg-red-50 text-red-600" },
-    { label: "納品推奨", active: hasDelivery, activeClass: "border-amber-200 bg-amber-50 text-amber-700" },
-    { label: "対応不要", active: noAction, activeClass: "border-emerald-200 bg-emerald-50 text-emerald-600" },
-  ];
-  return (
-    <div className="flex min-w-[86px] flex-col items-end gap-1">
-      {items.map((item) => (
-        <span
-          key={item.label}
-          className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${
-            item.active ? item.activeClass : "border-gray-200 bg-gray-50 text-gray-300 opacity-45"
-          }`}
-        >
-          {item.label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function DecisionCell({
-  label,
-  value,
-  tone,
-  unit = "",
-  subLabel = "",
-}: {
-  label: string;
-  value: number;
-  tone: "blue" | "green" | "orange";
-  unit?: string;
-  subLabel?: string;
-}) {
-  const active = value > 0;
-  const color = active
-    ? tone === "blue"
-      ? "text-indigo-700 bg-indigo-50 border-indigo-100"
-      : tone === "green"
-        ? "text-emerald-700 bg-emerald-50 border-emerald-100"
-        : "text-orange-700 bg-orange-50 border-orange-100"
-    : "text-gray-400 bg-gray-50 border-gray-100 opacity-55";
-  return (
-    <div className={`flex h-[86px] w-[140px] shrink-0 flex-col justify-center rounded-xl border px-3 py-2 text-right transition ${color}`}>
-      <div className="text-[11px] font-bold leading-none opacity-70">{label}</div>
-      <div className="mt-1 whitespace-nowrap text-xl font-black leading-tight tabular-nums">
-        {qtyText(value)}{unit ? <span className="ml-1 text-xs font-bold">{unit}</span> : null}
-      </div>
-      <div className="mt-1 min-h-[12px] text-[10px] font-bold leading-none opacity-60">{subLabel || " "}</div>
-    </div>
-  );
-}
 
 function DetailPill({
   label,
