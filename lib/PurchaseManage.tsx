@@ -40,6 +40,110 @@ export default function PurchaseManager({
 
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-200 bg-gray-50 px-5 py-4">
+          <h3 className="text-sm font-black text-gray-900">
+            発注SKU別必要数集計
+          </h3>
+          <p className="mt-1 text-xs font-semibold text-gray-500">
+            構成分解後の発注SKU単位の必要数・不足数・推奨発注数を集計します。
+          </p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1000px] text-left text-xs">
+            <thead className="bg-gray-50 text-gray-500">
+              <tr className="border-b border-gray-200">
+                <th className="px-3 py-2">発注SKU</th>
+                <th className="px-3 py-2 text-right">必要数</th>
+                <th className="px-3 py-2 text-right">AP在庫</th>
+                <th className="px-3 py-2 text-right">不足数</th>
+                <th className="px-3 py-2 text-right">MOQ</th>
+                <th className="px-3 py-2 text-right">発注単位</th>
+                <th className="px-3 py-2 text-right">推奨発注数</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {purchaseSkuSummaryRows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="px-3 py-10 text-center text-sm font-bold text-gray-400"
+                  >
+                    発注SKU別集計データはまだありません。
+                  </td>
+                </tr>
+              ) : (
+                purchaseSkuSummaryRows.map((rawRow, index) => {
+                  const row = rawRow as unknown as Record<string, unknown>;
+
+                  const purchaseSku =
+                    getText(row.purchase_sku) ||
+                    getText(row.component_purchase_sku) ||
+                    getText(row.sku);
+
+                  const requiredQty =
+                    getNumber(row.required_qty) ||
+                    getNumber(row.total_required_qty) ||
+                    getNumber(row.required_component_qty);
+
+                  const apStock =
+                    getNumber(row.ap_stock) ||
+                    getNumber(row.purchase_sku_ap_stock);
+
+                  const shortageQty =
+                    getNumber(row.shortage_qty) ||
+                    getNumber(row.total_shortage_qty);
+
+                  const moq = getNumber(row.moq);
+                  const orderUnit = getNumber(row.order_unit);
+
+                  const recommendedOrderQty =
+                    getNumber(row.recommended_order_qty) ||
+                    getNumber(row.final_recommended_order_qty);
+
+                  return (
+                    <tr
+                      key={`${purchaseSku || "summary"}-${index}`}
+                      className="border-b border-gray-100 hover:bg-emerald-50/30"
+                    >
+                      <td className="px-3 py-3 font-mono font-bold text-gray-900">
+                        {purchaseSku || "-"}
+                      </td>
+
+                      <td className="px-3 py-3 text-right font-bold text-gray-900">
+                        {requiredQty.toLocaleString()}
+                      </td>
+
+                      <td className="px-3 py-3 text-right font-bold text-sky-700">
+                        {apStock.toLocaleString()}
+                      </td>
+
+                      <td className="px-3 py-3 text-right font-bold text-red-600">
+                        {shortageQty.toLocaleString()}
+                      </td>
+
+                      <td className="px-3 py-3 text-right font-bold text-gray-700">
+                        {moq.toLocaleString()}
+                      </td>
+
+                      <td className="px-3 py-3 text-right font-bold text-gray-700">
+                        {orderUnit.toLocaleString()}
+                      </td>
+
+                      <td className="px-3 py-3 text-right font-black text-amber-700">
+                        {recommendedOrderQty.toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-200 bg-gray-50 px-5 py-4">
           <h3 className="text-sm font-black text-gray-900">発注SKU一覧</h3>
         </div>
 
