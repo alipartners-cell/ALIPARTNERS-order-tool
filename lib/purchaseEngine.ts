@@ -65,8 +65,6 @@ export function buildPurchaseBreakdownRows(
       Math.floor(Number(row.shortage_qty || 0))
     );
 
-    if (shortageSetQty <= 0) return [];
-
     return [1, 2, 3, 4, 5].flatMap((n) => {
       const componentPurchaseSku = String(
         master[`component_purchase_sku_${n}`] ?? ""
