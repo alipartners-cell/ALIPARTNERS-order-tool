@@ -35,14 +35,19 @@ const MASTER_TEMPLATE_COLUMNS = [
   "unit_per_set",
   "item_type",
   "component_jan_1",
+  "component_purchase_sku_1",
   "component_qty_1",
   "component_jan_2",
+  "component_purchase_sku_2",
   "component_qty_2",
   "component_jan_3",
+  "component_purchase_sku_3",
   "component_qty_3",
   "component_jan_4",
+  "component_purchase_sku_4",
   "component_qty_4",
   "component_jan_5",
+  "component_purchase_sku_5",
   "component_qty_5",
   "order_unit",
   "product_type",
@@ -73,14 +78,19 @@ const MASTER_TEMPLATE_SAMPLE = [
     unit_per_set: 3,
     item_type: "単品",
     component_jan_1: "",
+    component_purchase_sku_1: "",
     component_qty_1: "",
     component_jan_2: "",
+    component_purchase_sku_2: "",
     component_qty_2: "",
     component_jan_3: "",
+    component_purchase_sku_3: "",
     component_qty_3: "",
     component_jan_4: "",
+    component_purchase_sku_4: "",
     component_qty_4: "",
     component_jan_5: "",
+    component_purchase_sku_5: "",
     component_qty_5: "",
     order_unit: 50,
     product_type: "ready",
@@ -102,10 +112,15 @@ const XLSX_TEXT_COLUMNS = [
   "jan",
   "asin",
   "component_jan_1",
+  "component_purchase_sku_1",
   "component_jan_2",
+  "component_purchase_sku_2",
   "component_jan_3",
+  "component_purchase_sku_3",
   "component_jan_4",
+  "component_purchase_sku_4",
   "component_jan_5",
+  "component_purchase_sku_5",
 ] as const;
 
 function masterItemToXlsxRow(item: ProductMasterItemWithSet) {
@@ -123,15 +138,20 @@ function masterItemToXlsxRow(item: ProductMasterItemWithSet) {
     unit_per_set: Math.max(1, Number(item.unit_per_set || 1)),
     item_type: item.item_type === "set" ? "セット" : item.item_type === "bundle" ? "付属品" : "単品",
     component_jan_1: item.component_jan_1 || "",
-    component_qty_1: item.item_type !== "single" && item.component_jan_1 ? Number(item.component_qty_1 || 1) : "",
+    component_purchase_sku_1: item.component_purchase_sku_1 || "",
+    component_qty_1: item.item_type !== "single" && (item.component_jan_1 || item.component_purchase_sku_1) ? Number(item.component_qty_1 || 1) : "",
     component_jan_2: item.component_jan_2 || "",
-    component_qty_2: item.item_type !== "single" && item.component_jan_2 ? Number(item.component_qty_2 || 1) : "",
+    component_purchase_sku_2: item.component_purchase_sku_2 || "",
+    component_qty_2: item.item_type !== "single" && (item.component_jan_2 || item.component_purchase_sku_2) ? Number(item.component_qty_2 || 1) : "",
     component_jan_3: item.component_jan_3 || "",
-    component_qty_3: item.item_type !== "single" && item.component_jan_3 ? Number(item.component_qty_3 || 1) : "",
+    component_purchase_sku_3: item.component_purchase_sku_3 || "",
+    component_qty_3: item.item_type !== "single" && (item.component_jan_3 || item.component_purchase_sku_3) ? Number(item.component_qty_3 || 1) : "",
     component_jan_4: item.component_jan_4 || "",
-    component_qty_4: item.item_type !== "single" && item.component_jan_4 ? Number(item.component_qty_4 || 1) : "",
+    component_purchase_sku_4: item.component_purchase_sku_4 || "",
+    component_qty_4: item.item_type !== "single" && (item.component_jan_4 || item.component_purchase_sku_4) ? Number(item.component_qty_4 || 1) : "",
     component_jan_5: item.component_jan_5 || "",
-    component_qty_5: item.item_type !== "single" && item.component_jan_5 ? Number(item.component_qty_5 || 1) : "",
+    component_purchase_sku_5: item.component_purchase_sku_5 || "",
+    component_qty_5: item.item_type !== "single" && (item.component_jan_5 || item.component_purchase_sku_5) ? Number(item.component_qty_5 || 1) : "",
     order_unit: Number(item.order_unit || 0),
     product_type: item.product_type || "ready",
     factory_lt_days: Number(item.factory_lt_days || 5),
@@ -183,15 +203,20 @@ function buildMasterWorkbook(rows: Record<string, unknown>[]) {
     { wch: 12 }, // unit_per_set
     { wch: 14 }, // item_type
     { wch: 18 }, // component_jan_1
+    { wch: 24 }, // component_purchase_sku_1
     { wch: 10 }, // component_qty_1
-    { wch: 18 },
-    { wch: 10 },
-    { wch: 18 },
-    { wch: 10 },
-    { wch: 18 },
-    { wch: 10 },
-    { wch: 18 },
-    { wch: 10 },
+    { wch: 18 }, // component_jan_2
+    { wch: 24 }, // component_purchase_sku_2
+    { wch: 10 }, // component_qty_2
+    { wch: 18 }, // component_jan_3
+    { wch: 24 }, // component_purchase_sku_3
+    { wch: 10 }, // component_qty_3
+    { wch: 18 }, // component_jan_4
+    { wch: 24 }, // component_purchase_sku_4
+    { wch: 10 }, // component_qty_4
+    { wch: 18 }, // component_jan_5
+    { wch: 24 }, // component_purchase_sku_5
+    { wch: 10 }, // component_qty_5
     { wch: 12 }, // order_unit
     { wch: 14 }, // product_type
     { wch: 14 }, // factory_lt_days
