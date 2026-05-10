@@ -6,13 +6,13 @@ import {
 } from "@/lib/normalizers";
 
 import {
-  mergeRawSkuRow,
-  getMasterForCsvRow,
   getCanonicalKeyForCsvRow,
   canonicalizeCsvRowsByJan,
+  buildMergedChannelRows,
 } from "@/lib/csvMergeEngine";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
+import { adjustRowsForSetUnits, getUnitPerSetFromMaster } from "@/lib/rowCalculationEngine";
 import type { ComputedSkuRow, OrderParams, RawSkuRow, ProductMasterItem } from "@/types";
 import { computeAllRows, toRawRow } from "@/lib/calc";
 import {
@@ -208,48 +208,6 @@ function makeDraftMasterFromCsv(row: RawSkuRow): ProductMasterItem {
     product_name: row.product_name,
     moq: row.moq,
     master_status: "draft",
-  });
-}
-
-function getUnitPerSetFromMaster(master?: ProductMasterItem) {
-  const raw = Number((master as unknown as { unit_per_set?: unknown } | undefined)?.unit_per_set ?? 1);
-  return Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 1;
-}
-
-function adjustRowsForSetUnits(rows: ComputedSkuRow[], productMasterBySku: Record<string, ProductMasterItem>): ComputedSkuRow[] {
-  return rows.map((row) => {
-    const master = productMasterBySku[row.sku];
-    const unitPerSet = getUnitPerSetFromMaster(master);
-
-    const fbaRequiredSet = Number(row.fba_required_stock || 0);
-    const rslRequiredSet = Number(row.rsl_required_stock || 0);
-    const fbaStockSet = Number(row.amazon_stock || 0);
-    const rslStockSet = Number(row.rakuten_stock || 0);
-    const fbaInboundSet = Number(row.fba_inbound_plan || 0);
-    const rslInboundSet = Number(row.rsl_inbound_plan || 0);
-    const apStockEach = Number(row.ap_stock || 0);
-    const apStockSet = unitPerSet > 1 ? Math.floor(apStockEach / unitPerSet) : apStockEach;
-
-    const requiredTotalSet = fbaRequiredSet + rslRequiredSet;
-    const availableTotalSet = fbaStockSet + rslStockSet + fbaInboundSet + rslInboundSet + apStockSet;
-    const shortageSet = Math.max(0, requiredTotalSet - availableTotalSet);
-    const recommendedOrderQtyBara = shortageSet * unitPerSet;
-    const status: ComputedSkuRow["status"] = shortageSet > 0
-      ? "発注推奨"
-      : row.fba_recommended_delivery_qty > 0 || row.rsl_recommended_delivery_qty > 0
-        ? "納品推奨"
-        : "対応不要";
-
-    const next = {
-      ...row,
-      ...({ unit_per_set: unitPerSet } as unknown as Partial<ComputedSkuRow>),
-      // shortage_qty はセット単位。中国発注数は個（バラ）単位。
-      shortage_qty: shortageSet,
-      recommended_order_qty: recommendedOrderQtyBara,
-      status,
-    };
-
-    return next;
   });
 }
 
@@ -502,61 +460,30 @@ export default function HomePage() {
       setErrorModalOpen(false);
       setFilename(items.map((item) => item.file.name).join(" / "));
 
-      // ここがJAN統合の中核。
-      // 既存行も「SKU」ではなく「JAN優先キー」で持ち直すことで、
-      // Amazon SKU と 楽天 SKU が違っても同一JANなら1行に統合する。
-      const merged = new Map<string, RawSkuRow>();
-      canonicalizeCsvRowsByJan(csvRows.map(toRawRow), productMasterBySku, productMasterByJan).forEach((row) => {
-        const canonical = getCanonicalKeyForCsvRow(row, productMasterBySku, productMasterByJan);
-        if (canonical.key) merged.set(canonical.key, row);
-      });
-
       const nextErrors: string[] = [];
-      const touchedKeys = new Set<string>();
-
-      const loadedCounts: Partial<Record<"amazonSales" | "fbaInventory" | "rakutenSales" | "rslInventory", number>> = {};
+      const parsedItems: {
+        channel: SalesChannel;
+        kind: CsvDataKind;
+        rows: Partial<RawSkuRow>[];
+      }[] = [];
 
       for (const item of items) {
         const parsed = await parseChannelCsvFile(item.file, item.channel, item.kind);
         nextErrors.push(...parsed.errors);
-
-        if (item.channel === "rakuten") {
-          const statusKey = item.kind === "inventory" ? "rslInventory" : "rakutenSales";
-          loadedCounts[statusKey] = (loadedCounts[statusKey] ?? 0) + parsed.rows.length;
-        } else {
-          const statusKey = item.kind === "sales" ? "amazonSales" : "fbaInventory";
-          loadedCounts[statusKey] = (loadedCounts[statusKey] ?? 0) + parsed.rows.length;
-        }
-
-        parsed.rows.forEach((partial) => {
-          if (!partial.sku && !partial.jan) return;
-
-          // 楽天SKU実績レポートは「売上」として扱う。
-          // 旧レポート内の在庫列で、在庫エイジング由来のRSL在庫を上書きしない。
-          const normalizedPartial: Partial<RawSkuRow> =
-            item.channel === "rakuten" && item.kind === "sales"
-              ? {
-                  ...partial,
-                  rsl_stock: undefined,
-                  rakuten_stock: undefined,
-                  rsl_inbound_plan: undefined,
-                }
-              : partial;
-
-          const canonical = getCanonicalKeyForCsvRow(normalizedPartial, productMasterBySku, productMasterByJan);
-          if (!canonical.key || !canonical.sku) return;
-
-          touchedKeys.add(canonical.key);
-
-          const current = merged.get(canonical.key);
-          merged.set(
-            canonical.key,
-            mergeRawSkuRow(current, normalizedPartial, canonical.sku, canonical.jan)
-          );
+        parsedItems.push({
+          channel: item.channel,
+          kind: item.kind,
+          rows: parsed.rows,
         });
       }
 
-      const nextRows = Array.from(merged.values());
+      const { nextRows, touchedKeys, loadedCounts } = buildMergedChannelRows({
+        existingRows: csvRows.map(toRawRow),
+        parsedItems,
+        productMasterBySku,
+        productMasterByJan,
+      });
+
       setCsvRows(adjustRowsForSetUnits(computeAllRows(nextRows, appliedParams), productMasterBySku));
       setErrors(nextErrors);
       setCsvLoadStatus((prev) => ({

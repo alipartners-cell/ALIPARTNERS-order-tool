@@ -1,4 +1,5 @@
 import type { RawSkuRow, ProductMasterItem } from "@/types";
+import type { SalesChannel, CsvDataKind } from "@/lib/csv";
 import {
   normalizeSkuKey,
   normalizeJanKey,
@@ -143,19 +144,106 @@ export function canonicalizeCsvRowsByJan(
   return Array.from(merged.values());
 }
 
-export function buildMergedChannelRows<T>(
-  rows: T[],
-  getKey: (row: T) => string
-) {
-  const merged = new Map<string, T>();
+type ChannelMergeCountKey =
+  | "amazonSales"
+  | "fbaInventory"
+  | "rakutenSales"
+  | "rslInventory";
 
-  rows.forEach((row) => {
-    const key = getKey(row);
+type ChannelMergeItem = {
+  channel: SalesChannel;
+  kind: CsvDataKind;
+  rows: Partial<RawSkuRow>[];
+};
 
-    if (!key) return;
+export function buildMergedChannelRows({
+  existingRows,
+  parsedItems,
+  productMasterBySku,
+  productMasterByJan,
+}: {
+  existingRows: RawSkuRow[];
+  parsedItems: ChannelMergeItem[];
+  productMasterBySku: Record<string, ProductMasterItem>;
+  productMasterByJan: Record<string, ProductMasterItem>;
+}): {
+  nextRows: RawSkuRow[];
+  touchedKeys: Set<string>;
+  loadedCounts: Partial<Record<ChannelMergeCountKey, number>>;
+} {
+  const merged = new Map<string, RawSkuRow>();
 
-    merged.set(key, row);
+  canonicalizeCsvRowsByJan(
+    existingRows,
+    productMasterBySku,
+    productMasterByJan
+  ).forEach((row) => {
+    const canonical = getCanonicalKeyForCsvRow(
+      row,
+      productMasterBySku,
+      productMasterByJan
+    );
+
+    if (canonical.key) merged.set(canonical.key, row);
   });
 
-  return Array.from(merged.values());
+  const touchedKeys = new Set<string>();
+  const loadedCounts: Partial<Record<ChannelMergeCountKey, number>> = {};
+
+  parsedItems.forEach((item) => {
+    if (item.channel === "rakuten") {
+      const statusKey: ChannelMergeCountKey =
+        item.kind === "inventory" ? "rslInventory" : "rakutenSales";
+
+      loadedCounts[statusKey] = (loadedCounts[statusKey] ?? 0) + item.rows.length;
+    } else {
+      const statusKey: ChannelMergeCountKey =
+        item.kind === "sales" ? "amazonSales" : "fbaInventory";
+
+      loadedCounts[statusKey] = (loadedCounts[statusKey] ?? 0) + item.rows.length;
+    }
+
+    item.rows.forEach((partial) => {
+      if (!partial.sku && !partial.jan) return;
+
+      // 楽天SKU実績レポートは「売上」として扱う。
+      // 旧レポート内の在庫列で、在庫エイジング由来のRSL在庫を上書きしない。
+      const normalizedPartial: Partial<RawSkuRow> =
+        item.channel === "rakuten" && item.kind === "sales"
+          ? {
+              ...partial,
+              rsl_stock: undefined,
+              rakuten_stock: undefined,
+              rsl_inbound_plan: undefined,
+            }
+          : partial;
+
+      const canonical = getCanonicalKeyForCsvRow(
+        normalizedPartial,
+        productMasterBySku,
+        productMasterByJan
+      );
+
+      if (!canonical.key || !canonical.sku) return;
+
+      touchedKeys.add(canonical.key);
+
+      const current = merged.get(canonical.key);
+      merged.set(
+        canonical.key,
+        mergeRawSkuRow(
+          current,
+          normalizedPartial,
+          canonical.sku,
+          canonical.jan
+        )
+      );
+    });
+  });
+
+  return {
+    nextRows: Array.from(merged.values()),
+    touchedKeys,
+    loadedCounts,
+  };
 }
