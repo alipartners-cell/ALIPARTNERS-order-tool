@@ -12,7 +12,7 @@ import {
 } from "@/lib/csvMergeEngine";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { adjustRowsForSetUnits, getUnitPerSetFromMaster } from "@/lib/rowCalculationEngine";
+import { adjustRowsForSetUnits, getUnitPerSetFromMaster, buildComputedRows } from "@/lib/rowCalculationEngine";
 import type { ComputedSkuRow, OrderParams, RawSkuRow, ProductMasterItem } from "@/types";
 import { computeAllRows, toRawRow } from "@/lib/calc";
 import {
@@ -316,52 +316,13 @@ export default function HomePage() {
   }, [csvRows]);
 
   const rows = useMemo(() => {
-    const baseRows: RawSkuRow[] = productMasters.map((master) => {
-      const csv = csvRowBySku.get(normalizeSkuKey(master.sku)) || csvRowByJan.get(normalizeJanKey(master.jan));
-      return {
-        sku: master.sku,
-        jan: master.jan || csv?.jan || "",
-        product_name: master.product_name || csv?.product_name || "",
-        item_type: master.item_type,
-        component_jan_1: master.component_jan_1,
-        component_qty_1: master.component_qty_1,
-        component_jan_2: master.component_jan_2,
-        component_qty_2: master.component_qty_2,
-        component_jan_3: master.component_jan_3,
-        component_qty_3: master.component_qty_3,
-        component_jan_4: master.component_jan_4,
-        component_qty_4: master.component_qty_4,
-        component_jan_5: master.component_jan_5,
-        component_qty_5: master.component_qty_5,
-        monthly_sales: csv?.monthly_sales ?? 0,
-        fba_stock: csv?.fba_stock ?? 0,
-        rsl_stock: csv?.rsl_stock ?? 0,
-        ap_stock: csv?.ap_stock ?? 0,
-        inbound: csv?.inbound ?? 0,
-        amazon_monthly_sales: csv?.amazon_monthly_sales ?? 0,
-        rakuten_monthly_sales: csv?.rakuten_monthly_sales ?? 0,
-        amazon_stock: csv?.amazon_stock ?? 0,
-        rakuten_stock: csv?.rakuten_stock ?? 0,
-        fba_inbound_plan: csv?.fba_inbound_plan ?? 0,
-        rsl_inbound_plan: csv?.rsl_inbound_plan ?? 0,
-        fba_required_stock: 0,
-        rsl_required_stock: 0,
-        moq: master.moq || csv?.moq || 0,
-        order_unit: master.order_unit || csv?.order_unit || 0,
-        product_type: master.product_type ?? csv?.product_type,
-        factory_lt_days: master.factory_lt_days ?? csv?.factory_lt_days,
-        inspection_type: master.inspection_type ?? csv?.inspection_type,
-        ap_inspection_lt_days: master.ap_inspection_lt_days ?? csv?.ap_inspection_lt_days,
-        shipping_method: master.shipping_method ?? csv?.shipping_method,
-        international_shipping_lt_days: master.international_shipping_lt_days ?? csv?.international_shipping_lt_days,
-        fba_rsl_receiving_lt_days: master.fba_rsl_receiving_lt_days ?? csv?.fba_rsl_receiving_lt_days,
-        safety_stock_days: master.safety_stock_days ?? csv?.safety_stock_days,
-        ...({ unit_per_set: getUnitPerSetFromMaster(master) } as unknown as Partial<RawSkuRow>),
-      };
+    return buildComputedRows({
+      productMasters,
+      csvRowBySku,
+      csvRowByJan,
+      params: appliedParams,
     });
-
-    return computeAllRows(baseRows, appliedParams);
-  }, [productMasters, csvRowBySku, csvRowByJan, appliedParams, productMasterBySku]);
+  }, [productMasters, csvRowBySku, csvRowByJan, appliedParams]);
 
   const {
     purchaseSkus,
