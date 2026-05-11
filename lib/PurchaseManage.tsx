@@ -96,6 +96,82 @@ function downloadTextFile(content: string, filename: string, type: string) {
   window.URL.revokeObjectURL(url);
 }
 
+
+function formatQty(value: number) {
+  return Number(value || 0).toLocaleString();
+}
+
+function PurchaseDecisionCell({
+  label,
+  value,
+  unit = "個",
+  tone,
+}: {
+  label: string;
+  value: number;
+  unit?: string;
+  tone: "blue" | "red" | "orange" | "gray";
+}) {
+  const toneClass =
+    tone === "blue"
+      ? "border-sky-100 bg-sky-50 text-sky-700"
+      : tone === "red"
+        ? "border-red-100 bg-red-50 text-red-700"
+        : tone === "orange"
+          ? "border-orange-100 bg-orange-50 text-orange-700"
+          : "border-gray-100 bg-gray-50 text-gray-700";
+
+  return (
+    <div className={`min-w-[132px] rounded-2xl border px-4 py-3 text-center ${toneClass}`}>
+      <div className="text-[11px] font-black opacity-70">{label}</div>
+      <div className="mt-1 text-xl font-black tabular-nums">
+        {formatQty(value)}
+        <span className="ml-1 text-xs font-black">{unit}</span>
+      </div>
+    </div>
+  );
+}
+
+function PurchaseMetricLine({ label, value, unit = "" }: { label: string; value: number | string; unit?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-white/75 px-2.5 py-1.5">
+      <span className="text-[11px] font-bold text-gray-400">{label}</span>
+      <span className="text-[12px] font-black text-gray-800 tabular-nums">{value}{unit}</span>
+    </div>
+  );
+}
+
+function PurchaseReasonSummary({
+  requiredQty,
+  apStock,
+  shortageQty,
+  recommendedOrderQty,
+}: {
+  requiredQty: number;
+  apStock: number;
+  shortageQty: number;
+  recommendedOrderQty: number;
+}) {
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-gray-50/70 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-black text-gray-800">
+        <span>計算根拠</span>
+        <span className="text-gray-300">|</span>
+        <span>必要 {formatQty(requiredQty)}個</span>
+        <span>−</span>
+        <span>AP在庫 {formatQty(apStock)}個</span>
+        <span>=</span>
+        <span>不足 {formatQty(shortageQty)}個</span>
+        <span>→</span>
+        <span>推奨発注 {formatQty(recommendedOrderQty)}個</span>
+      </div>
+      <div className="mt-1 text-[10px] font-bold text-gray-500">
+        発注管理は発注SKU単位で集計します。販売JAN・構成JAN・内部管理SKUを発注単位に変換した後、AP在庫を差し引きます。
+      </div>
+    </div>
+  );
+}
+
 export default function PurchaseManager({
   purchaseSkus,
   setPurchaseSkus,
@@ -664,141 +740,152 @@ export default function PurchaseManager({
         </div>
       )}
 
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <div className="border-b border-gray-200 bg-gray-50 px-5 py-4">
-          <h3 className="text-sm font-black text-gray-900">
-            発注SKU別必要数集計
-          </h3>
-          <p className="mt-1 text-xs font-semibold text-gray-500">
-            構成分解後の発注SKU単位の必要数・不足数・推奨発注数を集計します。
-          </p>
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-black text-gray-900">発注SKU別必要数集計</h3>
+            <p className="mt-1 text-xs font-semibold text-gray-500">
+              発注SKU単位で、中国へ何を何個発注するかを確認します。
+            </p>
+          </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-left text-xs">
-            <thead className="bg-gray-50 text-gray-500">
-              <tr className="border-b border-gray-200">
-                <th className="px-3 py-2">発注SKU</th>
-                <th className="px-3 py-2 text-right">必要数</th>
-                <th className="px-3 py-2 text-right">AP在庫</th>
-                <th className="px-3 py-2 text-right">不足数</th>
-                <th className="px-3 py-2 text-right">MOQ</th>
-                <th className="px-3 py-2 text-right">発注単位</th>
-                <th className="px-3 py-2 text-right">推奨発注数</th>
-                <th className="px-3 py-2 text-right">手動発注数</th>
-              </tr>
-            </thead>
+        {purchaseSkuSummaryRows.length === 0 ? (
+          <div className="rounded-xl border border-gray-200 bg-gray-50 py-16 text-center text-sm font-bold text-gray-400">
+            発注SKU別集計データはまだありません。
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {purchaseSkuSummaryRows.map((rawRow, index) => {
+              const row = rawRow as unknown as Record<string, unknown>;
 
-            <tbody>
-              {purchaseSkuSummaryRows.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={8}
-                    className="px-3 py-10 text-center text-sm font-bold text-gray-400"
-                  >
-                    発注SKU別集計データはまだありません。
-                  </td>
-                </tr>
-              ) : (
-                purchaseSkuSummaryRows.map((rawRow, index) => {
-                  const row = rawRow as unknown as Record<string, unknown>;
+              const purchaseSku =
+                getText(row.purchase_sku) ||
+                getText(row.component_purchase_sku) ||
+                getText(row.sku);
 
-                  const purchaseSku =
-                    getText(row.purchase_sku) ||
-                    getText(row.component_purchase_sku) ||
-                    getText(row.sku);
+              const requiredQty =
+                getNumber(row.required_qty) ||
+                getNumber(row.total_required_qty) ||
+                getNumber(row.required_component_qty);
 
-                  const requiredQty =
-                    getNumber(row.required_qty) ||
-                    getNumber(row.total_required_qty) ||
-                    getNumber(row.required_component_qty);
+              const apStock =
+                getNumber(row.ap_stock) ||
+                getNumber(row.purchase_sku_ap_stock);
 
-                  const apStock =
-                    getNumber(row.ap_stock) ||
-                    getNumber(row.purchase_sku_ap_stock);
+              const shortageQty =
+                getNumber(row.shortage_qty) ||
+                getNumber(row.total_shortage_qty);
 
-                  const shortageQty =
-                    getNumber(row.shortage_qty) ||
-                    getNumber(row.total_shortage_qty);
+              const moq = getNumber(row.moq);
+              const orderUnit = getNumber(row.order_unit);
 
-                  const moq = getNumber(row.moq);
-                  const orderUnit = getNumber(row.order_unit);
+              const recommendedOrderQty =
+                getNumber(row.recommended_order_qty) ||
+                getNumber(row.final_recommended_order_qty);
 
-                  const recommendedOrderQty =
-                    getNumber(row.recommended_order_qty) ||
-                    getNumber(row.final_recommended_order_qty);
+              const manualQty =
+                purchaseSku && manualPurchaseOrders[purchaseSku] !== undefined
+                  ? manualPurchaseOrders[purchaseSku]
+                  : "";
 
-                  const manualQty =
-                    purchaseSku && manualPurchaseOrders[purchaseSku] !== undefined
-                      ? manualPurchaseOrders[purchaseSku]
-                      : "";
+              const color = getText(row.color);
+              const size = getText(row.size);
+              const url1688 = getText(row.url_1688);
+              const isRegistered = Boolean(row.is_registered_purchase_sku);
 
-                  return (
-                    <tr
-                      key={`${purchaseSku || "summary"}-${index}`}
-                      className="border-b border-gray-100 hover:bg-emerald-50/30"
-                    >
-                      <td className="px-3 py-3 font-mono font-bold text-gray-900">
-                        {purchaseSku || "-"}
-                      </td>
+              return (
+                <div
+                  key={`${purchaseSku || "summary"}-${index}`}
+                  className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 text-[10px] font-bold text-gray-400">
+                      発注
+                    </div>
 
-                      <td className="px-3 py-3 text-right font-bold text-gray-900">
-                        {requiredQty.toLocaleString()}
-                      </td>
+                    <div className="min-w-[220px] flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="font-mono text-base font-black text-gray-900">
+                          {purchaseSku || "発注SKU未設定"}
+                        </div>
 
-                      <td className="px-3 py-3 text-right font-bold text-sky-700">
-                        {apStock.toLocaleString()}
-                      </td>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${isRegistered ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                          {isRegistered ? "発注SKU登録済" : "発注SKU未登録"}
+                        </span>
+                      </div>
 
-                      <td className="px-3 py-3 text-right font-bold text-red-600">
-                        {shortageQty.toLocaleString()}
-                      </td>
+                      <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
+                        {color && <span>色: {color}</span>}
+                        {size && <span>サイズ: {size}</span>}
+                        {url1688 ? (
+                          <a
+                            href={url1688}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-indigo-600 underline underline-offset-2"
+                          >
+                            1688URL
+                          </a>
+                        ) : (
+                          <span>1688URL: -</span>
+                        )}
+                      </div>
+                    </div>
 
-                      <td className="px-3 py-3 text-right font-bold text-gray-700">
-                        {moq.toLocaleString()}
-                      </td>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <PurchaseDecisionCell label="必要数" value={requiredQty} tone="blue" />
+                      <PurchaseDecisionCell label="AP在庫" value={apStock} tone="gray" />
+                      <PurchaseDecisionCell label="不足数" value={shortageQty} tone="red" />
+                      <PurchaseDecisionCell label="推奨発注数" value={recommendedOrderQty} tone="orange" />
+                    </div>
+                  </div>
 
-                      <td className="px-3 py-3 text-right font-bold text-gray-700">
-                        {orderUnit.toLocaleString()}
-                      </td>
+                  <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+                    <PurchaseMetricLine label="MOQ" value={formatQty(moq)} unit="個" />
+                    <PurchaseMetricLine label="発注単位" value={formatQty(orderUnit)} unit="個" />
+                    <div className="flex items-center justify-between gap-3 rounded-lg bg-white/75 px-2.5 py-1.5">
+                      <span className="text-[11px] font-bold text-gray-400">手動発注数</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={manualQty}
+                        onChange={(event) => {
+                          if (!purchaseSku) return;
 
-                      <td className="px-3 py-3 text-right font-black text-amber-700">
-                        {recommendedOrderQty.toLocaleString()}
-                      </td>
+                          const nextValue = event.target.value;
 
-                      <td className="px-3 py-3 text-right">
-                        <input
-                          type="number"
-                          min={0}
-                          value={manualQty}
-                          onChange={(event) => {
-                            if (!purchaseSku) return;
+                          setManualPurchaseOrders((prev) => {
+                            const next = { ...prev };
 
-                            const nextValue = event.target.value;
-
-                            setManualPurchaseOrders((prev) => {
-                              const next = { ...prev };
-
-                              if (nextValue === "") {
-                                delete next[purchaseSku];
-                                return next;
-                              }
-
-                              next[purchaseSku] = getFormNumber(nextValue);
+                            if (nextValue === "") {
+                              delete next[purchaseSku];
                               return next;
-                            });
-                          }}
-                          className="w-24 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-right text-xs font-bold text-gray-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                          placeholder="任意"
-                        />
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                            }
+
+                            next[purchaseSku] = getFormNumber(nextValue);
+                            return next;
+                          });
+                        }}
+                        className="w-28 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-right text-xs font-bold text-gray-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                        placeholder="任意"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <PurchaseReasonSummary
+                      requiredQty={requiredQty}
+                      apStock={apStock}
+                      shortageQty={shortageQty}
+                      recommendedOrderQty={recommendedOrderQty}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
