@@ -230,6 +230,192 @@ function PurchaseMetricLine({ label, value, unit = "" }: { label: string; value:
   );
 }
 
+
+type InspectionKey = "detail" | "set" | "opp" | "print" | "barcode" | "tag";
+
+const PURCHASE_INSPECTION_ITEMS: { key: InspectionKey; label: string }[] = [
+  { key: "detail", label: "詳細検品" },
+  { key: "set", label: "セット組" },
+  { key: "opp", label: "OPP袋" },
+  { key: "print", label: "印刷物" },
+  { key: "barcode", label: "バーコード" },
+  { key: "tag", label: "タグつけ外し" },
+];
+
+type PurchaseCsvModalRow = {
+  key: string;
+  imageUrl: string;
+  productName: string;
+  purchaseSku: string;
+  displayJan: string;
+  orderQty: number;
+  requiredQty: number;
+  fbaRslStock: number;
+  theoreticalStock: number;
+  apStock: number;
+  moq: number;
+  orderUnit: number;
+  color: string;
+  size: string;
+  url1688: string;
+  sourceType: string;
+  inspections: Record<InspectionKey, boolean>;
+};
+
+function PurchaseCsvExportModal({
+  rows,
+  setRows,
+  onClose,
+  onConfirm,
+}: {
+  rows: PurchaseCsvModalRow[];
+  setRows: Dispatch<SetStateAction<PurchaseCsvModalRow[]>>;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const updateOrderQty = (key: string, value: string) => {
+    const qty = Math.max(0, Math.floor(Number(value) || 0));
+    setRows((prev) =>
+      prev.map((row) => (row.key === key ? { ...row, orderQty: qty } : row))
+    );
+  };
+
+  const toggleInspection = (key: string, inspectionKey: InspectionKey) => {
+    setRows((prev) =>
+      prev.map((row) =>
+        row.key === key
+          ? {
+              ...row,
+              inspections: {
+                ...row.inspections,
+                [inspectionKey]: !row.inspections[inspectionKey],
+              },
+            }
+          : row
+      )
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="max-h-[90vh] w-full max-w-6xl overflow-auto rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-5">
+          <div>
+            <h2 className="text-xl font-black text-gray-900">検品項目を選択してCSV出力</h2>
+            <p className="mt-1 text-sm font-semibold text-gray-500">
+              選択した検品項目は、発注CSVの各SKU/JAN行に反映されます。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full px-3 py-1 text-sm font-black text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+          >
+            閉じる
+          </button>
+        </div>
+
+        <div className="overflow-x-auto px-6 py-5">
+          <table className="w-full min-w-[1050px] text-left text-xs">
+            <thead className="text-gray-500">
+              <tr className="border-b border-gray-200">
+                <th className="px-3 py-3">画像</th>
+                <th className="px-3 py-3">発注SKU/JAN</th>
+                <th className="px-3 py-3">商品名</th>
+                <th className="px-3 py-3 text-right">発注数（個・バラ）</th>
+                {PURCHASE_INSPECTION_ITEMS.map((item) => (
+                  <th key={item.key} className="px-3 py-3 text-center">
+                    <div className="flex flex-col items-center gap-1">
+                      <span>{item.label}</span>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.key} className="border-b border-gray-100">
+                  <td className="px-3 py-3">
+                    {row.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={row.imageUrl} alt="" className="h-14 w-14 rounded-xl border border-gray-200 object-cover" />
+                    ) : (
+                      <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-dashed border-gray-300 text-[10px] font-bold text-gray-400">
+                        no image
+                      </div>
+                    )}
+                  </td>
+
+                  <td className="px-3 py-3 align-top">
+                    <div className="font-mono text-sm font-black text-gray-900">{row.purchaseSku || "-"}</div>
+                    {row.displayJan && (
+                      <div className="mt-1 font-mono text-[11px] font-bold text-gray-500">JAN: {row.displayJan}</div>
+                    )}
+                  </td>
+
+                  <td className="max-w-[360px] px-3 py-3 align-top">
+                    <div className="truncate text-sm font-bold text-gray-800">{row.productName || "商品名未設定"}</div>
+                    <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-gray-500">
+                      {row.color && <span>色: {row.color}</span>}
+                      {row.size && <span>サイズ: {row.size}</span>}
+                    </div>
+                  </td>
+
+                  <td className="px-3 py-3 text-right align-top">
+                    <input
+                      type="number"
+                      min={0}
+                      value={row.orderQty}
+                      onChange={(event) => updateOrderQty(row.key, event.target.value)}
+                      className="w-28 rounded-lg border border-gray-300 bg-white px-3 py-2 text-right text-sm font-black text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                    />
+                  </td>
+
+                  {PURCHASE_INSPECTION_ITEMS.map((item) => (
+                    <td key={item.key} className="px-3 py-3 text-center align-top">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(row.inspections[item.key])}
+                        onChange={() => toggleInspection(row.key, item.key)}
+                        className="h-4 w-4"
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 px-6 py-4">
+          <p className="text-xs font-semibold text-gray-500">
+            発注数は個（バラ）単位です。この画面で任意変更できます。CSVには inspection_items と各検品項目の列が追加されます。
+          </p>
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-gray-200 bg-white px-5 py-2 text-sm font-black text-gray-700 hover:bg-gray-50"
+            >
+              キャンセル
+            </button>
+
+            <button
+              type="button"
+              onClick={onConfirm}
+              className="rounded-xl bg-indigo-600 px-5 py-2 text-sm font-black text-white shadow-sm hover:bg-indigo-500"
+            >
+              この内容でCSVダウンロード
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PurchaseManager({
   purchaseSkus,
   setPurchaseSkus,
@@ -251,6 +437,8 @@ export default function PurchaseManager({
   const [expandedPurchaseRows, setExpandedPurchaseRows] = useState<Set<string>>(new Set());
   const [selectedPurchaseRowKeys, setSelectedPurchaseRowKeys] = useState<Set<string>>(new Set());
   const [previewItem, setPreviewItem] = useState<PurchasePreviewState | null>(null);
+  const [purchaseCsvModalOpen, setPurchaseCsvModalOpen] = useState(false);
+  const [purchaseCsvRows, setPurchaseCsvRows] = useState<PurchaseCsvModalRow[]>([]);
 
   const sortedPurchaseSkuSummaryRows = useMemo(() => {
     const rows = [...purchaseSkuSummaryRows].sort((a, b) => {
@@ -393,12 +581,86 @@ export default function PurchaseManager({
     }
   };
 
+  const buildSelectedPurchaseCsvRows = (): PurchaseCsvModalRow[] => {
+    return sortedPurchaseSkuSummaryRows
+      .map((rawRow, index) => ({ rawRow, index, rowKey: getPurchaseRowKey(rawRow, index) }))
+      .filter(({ rowKey }) => selectedPurchaseRowKeys.has(rowKey))
+      .map(({ rawRow, index, rowKey }) => {
+        const row = rawRow as unknown as Record<string, unknown>;
+        const purchaseSku =
+          getText(row.purchase_sku) ||
+          getText(row.component_purchase_sku) ||
+          getText(row.sku);
+        const displayJan =
+          getText(row.display_jan) ||
+          getText(row.sales_jan) ||
+          (/^\d{8,14}$/.test(purchaseSku) ? purchaseSku : "");
+        const productName =
+          getText(row.product_name) ||
+          getText(row.productName) ||
+          getText(row.name);
+        const recommendedOrderQty =
+          getNumber(row.recommended_order_qty) ||
+          getNumber(row.final_recommended_order_qty);
+        const manualQty =
+          purchaseSku && manualPurchaseOrders[purchaseSku] !== undefined
+            ? manualPurchaseOrders[purchaseSku]
+            : undefined;
+        const imageUrl =
+          getText(row.image_url) ||
+          getText(row.imageUrl) ||
+          getText(row.product_image_url) ||
+          getText(row.thumbnail_url);
+
+        return {
+          key: `${rowKey}-${index}`,
+          imageUrl,
+          productName,
+          purchaseSku,
+          displayJan,
+          orderQty:
+            manualQty === undefined
+              ? Math.max(0, Math.floor(recommendedOrderQty || 0))
+              : Math.max(0, Math.floor(Number(manualQty) || 0)),
+          requiredQty:
+            getNumber(row.required_qty) ||
+            getNumber(row.total_required_qty) ||
+            getNumber(row.required_component_qty),
+          fbaRslStock: getNumber(row.fba_rsl_stock),
+          theoreticalStock: getNumber(row.theoretical_stock),
+          apStock: getNumber(row.ap_stock) || getNumber(row.purchase_sku_ap_stock),
+          moq: getNumber(row.moq),
+          orderUnit: getNumber(row.order_unit),
+          color: getText(row.color),
+          size: getText(row.size),
+          url1688: getText(row.url_1688),
+          sourceType: getText(row.source_type),
+          inspections: {
+            detail: false,
+            set: false,
+            opp: false,
+            print: false,
+            barcode: false,
+            tag: false,
+          },
+        };
+      });
+  };
+
   const handleExportPurchaseSkusCsv = () => {
-    const selectedRows = sortedPurchaseSkuSummaryRows.filter((row, index) =>
-      selectedPurchaseRowKeys.has(getPurchaseRowKey(row, index))
-    );
+    const selectedRows = buildSelectedPurchaseCsvRows();
 
     if (selectedRows.length === 0) {
+      alert("発注CSVをダウンロードする商品を選択してください");
+      return;
+    }
+
+    setPurchaseCsvRows(selectedRows);
+    setPurchaseCsvModalOpen(true);
+  };
+
+  const handleConfirmPurchaseCsvDownload = () => {
+    if (purchaseCsvRows.length === 0) {
       alert("発注CSVをダウンロードする商品を選択してください");
       return;
     }
@@ -414,62 +676,46 @@ export default function PurchaseManager({
       "AP在庫",
       "MOQ",
       "発注単位",
-      "手動発注数",
       "色",
       "サイズ",
       "1688URL",
+      "inspection_items",
+      ...PURCHASE_INSPECTION_ITEMS.map((item) => item.label),
     ];
 
-    const rows = selectedRows.map((rawRow, index) => {
-      const row = rawRow as unknown as Record<string, unknown>;
-      const purchaseSku =
-        getText(row.purchase_sku) ||
-        getText(row.component_purchase_sku) ||
-        getText(row.sku);
-      const displayJan =
-        getText(row.display_jan) ||
-        getText(row.sales_jan) ||
-        (/^\d{8,14}$/.test(purchaseSku) ? purchaseSku : "");
-      const productName =
-        getText(row.product_name) ||
-        getText(row.productName) ||
-        getText(row.name);
-      const sourceType = getText(row.source_type);
-      const fbaRslStock = getNumber(row.fba_rsl_stock);
-      const theoreticalStock = getNumber(row.theoretical_stock);
-      const recommendedOrderQty =
-        getNumber(row.recommended_order_qty) ||
-        getNumber(row.final_recommended_order_qty);
-      const manualQty = purchaseSku && manualPurchaseOrders[purchaseSku] !== undefined
-        ? manualPurchaseOrders[purchaseSku]
-        : "";
+    const rows = purchaseCsvRows.map((row) => {
+      const inspectionLabels = PURCHASE_INSPECTION_ITEMS
+        .filter((item) => row.inspections[item.key])
+        .map((item) => item.label);
 
       return [
-        productName,
-        purchaseSku,
-        displayJan,
-        recommendedOrderQty,
-        getNumber(row.required_qty) || getNumber(row.total_required_qty) || getNumber(row.required_component_qty),
-        sourceType === "component_purchase_sku" ? "" : fbaRslStock,
-        sourceType === "component_purchase_sku" ? theoreticalStock : "",
-        getNumber(row.ap_stock) || getNumber(row.purchase_sku_ap_stock),
-        getNumber(row.moq),
-        getNumber(row.order_unit),
-        manualQty,
-        getText(row.color),
-        getText(row.size),
-        getText(row.url_1688),
+        row.productName,
+        row.purchaseSku,
+        row.displayJan,
+        row.orderQty,
+        row.requiredQty,
+        row.sourceType === "component_purchase_sku" ? "" : row.fbaRslStock,
+        row.sourceType === "component_purchase_sku" ? row.theoreticalStock : "",
+        row.apStock,
+        row.moq,
+        row.orderUnit,
+        row.color,
+        row.size,
+        row.url1688,
+        inspectionLabels.join(" / "),
+        ...PURCHASE_INSPECTION_ITEMS.map((item) => (row.inspections[item.key] ? "1" : "")),
       ];
     });
 
     const csv =
-      "﻿" +
+      "\ufeff" +
       [headers, ...rows]
         .map((row) => row.map(escapeCsvValue).join(","))
         .join("\n");
 
     const ts = new Date().toISOString().slice(0, 10);
     downloadTextFile(csv, `purchase_order_${ts}.csv`, "text/csv;charset=utf-8");
+    setPurchaseCsvModalOpen(false);
   };
 
   const normalizeImportedPurchaseSku = (
@@ -1138,6 +1384,15 @@ export default function PurchaseManager({
           </div>
         )}
       </div>
+
+      {purchaseCsvModalOpen && (
+        <PurchaseCsvExportModal
+          rows={purchaseCsvRows}
+          setRows={setPurchaseCsvRows}
+          onClose={() => setPurchaseCsvModalOpen(false)}
+          onConfirm={handleConfirmPurchaseCsvDownload}
+        />
+      )}
 
       {previewItem && (
         <PurchaseMasterPreviewModal
