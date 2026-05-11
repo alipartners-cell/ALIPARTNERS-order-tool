@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type { PurchaseSkuItem } from "@/types";
+import type { ProductMasterItem, PurchaseSkuItem } from "@/types";
 import type {
   PurchaseBreakdownRow,
   PurchaseSkuSummaryRow,
@@ -15,6 +15,8 @@ type Props = {
   purchaseSkuSummaryRows: PurchaseSkuSummaryRow[];
   manualPurchaseOrders: Record<string, number>;
   setManualPurchaseOrders: Dispatch<SetStateAction<Record<string, number>>>;
+  onOpenMaster?: (sku: string) => void;
+  productMasters?: Record<string, ProductMasterItem>;
 };
 
 const EMPTY_PURCHASE_SKU_FORM: PurchaseSkuItem = {
@@ -101,32 +103,119 @@ function formatQty(value: number) {
   return Number(value || 0).toLocaleString();
 }
 
-function PurchaseDecisionCell({
-  label,
-  value,
-  unit = "個",
-  tone,
+
+type PurchasePreviewState = {
+  masterSku: string;
+  purchaseSku: string;
+  displayJan: string;
+  productName: string;
+  imageUrl: string;
+  color: string;
+  size: string;
+  url1688: string;
+  chinaOrderQty: number;
+  moq: number;
+  orderUnit: number;
+};
+
+function PreviewBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-gray-50 px-4 py-3">
+      <div className="text-xs font-black text-gray-400">{label}</div>
+      <div className="mt-1 truncate text-sm font-black text-gray-700">{value}</div>
+    </div>
+  );
+}
+
+function PurchaseMasterPreviewModal({
+  item,
+  master,
+  onClose,
+  onOpenMaster,
 }: {
-  label: string;
-  value: number;
-  unit?: string;
-  tone: "blue" | "red" | "orange" | "gray";
+  item: PurchasePreviewState;
+  master?: ProductMasterItem;
+  onClose: () => void;
+  onOpenMaster?: (sku: string) => void;
 }) {
-  const toneClass =
-    tone === "blue"
-      ? "border-sky-100 bg-sky-50 text-sky-700"
-      : tone === "red"
-        ? "border-red-100 bg-red-50 text-red-700"
-        : tone === "orange"
-          ? "border-orange-100 bg-orange-50 text-orange-700"
-          : "border-gray-100 bg-gray-50 text-gray-700";
+  const masterAny = master as any;
+  const imageUrl = item.imageUrl || String(masterAny?.image_url ?? masterAny?.imageUrl ?? "");
+  const productName = item.productName || String(masterAny?.product_name ?? masterAny?.商品名 ?? "商品名未設定");
+  const sku = item.masterSku || item.purchaseSku || String(masterAny?.sku ?? "");
+  const jan = item.displayJan || String(masterAny?.jan ?? "");
+  const asin = String(masterAny?.asin ?? "");
+  const cost = Number(masterAny?.cost_yen ?? masterAny?.purchase_price_yen ?? masterAny?.仕入単価 ?? 0) || 0;
+  const color = item.color || String(masterAny?.color ?? "");
+  const size = item.size || String(masterAny?.size ?? "");
+  const url1688 = item.url1688 || String(masterAny?.url_1688 ?? masterAny?.supplier_url ?? "");
 
   return (
-    <div className={`min-w-[132px] rounded-2xl border px-4 py-3 text-center ${toneClass}`}>
-      <div className="text-[11px] font-black opacity-70">{label}</div>
-      <div className="mt-1 text-xl font-black tabular-nums">
-        {formatQty(value)}
-        <span className="ml-1 text-xs font-black">{unit}</span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-auto rounded-3xl bg-white p-6 shadow-2xl">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-black text-gray-900">商品マスタ情報</h2>
+            <p className="mt-1 text-sm font-semibold text-gray-500">発注管理からマスタ情報を確認しています。</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full px-3 py-1 text-2xl font-bold text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-5 md:flex-row">
+          {imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={imageUrl} alt="" className="h-28 w-28 rounded-2xl border border-gray-200 object-cover" />
+          ) : (
+            <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-2xl border border-dashed border-gray-300 text-xs font-bold text-gray-400">
+              no image
+            </div>
+          )}
+
+          <div className="min-w-0 flex-1">
+            <h3 className="text-xl font-black leading-relaxed text-gray-900">{productName}</h3>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+              <PreviewBox label="SKU" value={sku || "-"} />
+              <PreviewBox label="JAN" value={jan || "-"} />
+              <PreviewBox label="ASIN" value={asin || "-"} />
+              <PreviewBox label="仕入単価" value={`${cost.toLocaleString()}元`} />
+              <PreviewBox label="色" value={color || "-"} />
+              <PreviewBox label="サイズ" value={size || "-"} />
+              <PreviewBox label="中国発注数" value={`${formatQty(item.chinaOrderQty)}個`} />
+              <PreviewBox label="MOQ" value={`${formatQty(item.moq)}個`} />
+              <PreviewBox label="発注単位" value={`${formatQty(item.orderUnit)}個`} />
+            </div>
+
+            <div className="mt-4 rounded-2xl bg-gray-50 p-4">
+              <div className="text-xs font-black text-gray-400">1688URL</div>
+              {url1688 ? (
+                <a href={url1688} target="_blank" rel="noreferrer" className="mt-1 block break-all text-sm font-bold text-indigo-600 underline underline-offset-2">
+                  {url1688}
+                </a>
+              ) : (
+                <div className="mt-1 text-sm font-bold text-gray-500">-</div>
+              )}
+            </div>
+
+            <div className="mt-5 flex justify-start">
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenMaster?.(sku);
+                  onClose();
+                }}
+                className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-black text-white hover:bg-gray-700"
+              >
+                商品マスタで編集
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -141,37 +230,6 @@ function PurchaseMetricLine({ label, value, unit = "" }: { label: string; value:
   );
 }
 
-function PurchaseReasonSummary({
-  requiredQty,
-  apStock,
-  shortageQty,
-  recommendedOrderQty,
-}: {
-  requiredQty: number;
-  apStock: number;
-  shortageQty: number;
-  recommendedOrderQty: number;
-}) {
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-gray-50/70 px-3 py-2">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-black text-gray-800">
-        <span>計算根拠</span>
-        <span className="text-gray-300">|</span>
-        <span>必要 {formatQty(requiredQty)}個</span>
-        <span>−</span>
-        <span>AP在庫 {formatQty(apStock)}個</span>
-        <span>=</span>
-        <span>不足 {formatQty(shortageQty)}個</span>
-        <span>→</span>
-        <span>推奨発注 {formatQty(recommendedOrderQty)}個</span>
-      </div>
-      <div className="mt-1 text-[10px] font-bold text-gray-500">
-        発注管理は発注SKU単位で集計します。販売JAN・構成JAN・内部管理SKUを発注単位に変換した後、AP在庫を差し引きます。
-      </div>
-    </div>
-  );
-}
-
 export default function PurchaseManager({
   purchaseSkus,
   setPurchaseSkus,
@@ -179,6 +237,8 @@ export default function PurchaseManager({
   purchaseSkuSummaryRows,
   manualPurchaseOrders,
   setManualPurchaseOrders,
+  onOpenMaster,
+  productMasters = {},
 }: Props) {
   const [showPurchaseSkus, setShowPurchaseSkus] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(false);
@@ -187,6 +247,23 @@ export default function PurchaseManager({
     EMPTY_PURCHASE_SKU_FORM
   );
   const [editingPurchaseSku, setEditingPurchaseSku] = useState("");
+  const [showOnlyOrderRequired, setShowOnlyOrderRequired] = useState(false);
+  const [previewItem, setPreviewItem] = useState<PurchasePreviewState | null>(null);
+
+  const sortedPurchaseSkuSummaryRows = useMemo(() => {
+    const rows = [...purchaseSkuSummaryRows].sort((a, b) => {
+      const aQty = Number((a as any).recommended_order_qty ?? 0) || 0;
+      const bQty = Number((b as any).recommended_order_qty ?? 0) || 0;
+      return bQty - aQty;
+    });
+
+    if (!showOnlyOrderRequired) return rows;
+
+    return rows.filter((row) => {
+      const qty = Number((row as any).recommended_order_qty ?? 0) || 0;
+      return qty > 0;
+    });
+  }, [purchaseSkuSummaryRows, showOnlyOrderRequired]);
 
   const resetPurchaseForm = () => {
     setPurchaseForm(EMPTY_PURCHASE_SKU_FORM);
@@ -743,26 +820,49 @@ export default function PurchaseManager({
       <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-black text-gray-900">発注SKU別必要数集計</h3>
+            <h3 className="text-sm font-black text-gray-900">中国発注数一覧</h3>
             <p className="mt-1 text-xs font-semibold text-gray-500">
               発注SKU単位で、中国へ何を何個発注するかを確認します。
             </p>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setShowOnlyOrderRequired((v) => !v)}
+            className={`rounded-xl border px-3 py-2 text-xs font-bold ${
+              showOnlyOrderRequired
+                ? "border-orange-200 bg-orange-50 text-orange-700"
+                : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            中国発注ありのみ
+          </button>
         </div>
 
-        {purchaseSkuSummaryRows.length === 0 ? (
+        {sortedPurchaseSkuSummaryRows.length === 0 ? (
           <div className="rounded-xl border border-gray-200 bg-gray-50 py-16 text-center text-sm font-bold text-gray-400">
-            発注SKU別集計データはまだありません。
+            中国発注数データはまだありません。
           </div>
         ) : (
           <div className="space-y-3">
-            {purchaseSkuSummaryRows.map((rawRow, index) => {
+            {sortedPurchaseSkuSummaryRows.map((rawRow, index) => {
               const row = rawRow as unknown as Record<string, unknown>;
 
               const purchaseSku =
                 getText(row.purchase_sku) ||
                 getText(row.component_purchase_sku) ||
                 getText(row.sku);
+
+              const masterSku = getText(row.master_sku) || purchaseSku;
+              const displayJan =
+                getText(row.display_jan) ||
+                getText(row.sales_jan) ||
+                (/^\d{8,14}$/.test(purchaseSku) ? purchaseSku : "");
+
+              const productName =
+                getText(row.product_name) ||
+                getText(row.productName) ||
+                getText(row.name);
 
               const requiredQty =
                 getNumber(row.required_qty) ||
@@ -792,6 +892,11 @@ export default function PurchaseManager({
               const color = getText(row.color);
               const size = getText(row.size);
               const url1688 = getText(row.url_1688);
+              const imageUrl =
+                getText(row.image_url) ||
+                getText(row.imageUrl) ||
+                getText(row.product_image_url) ||
+                getText(row.thumbnail_url);
               const isRegistered = Boolean(row.is_registered_purchase_sku);
 
               return (
@@ -800,44 +905,68 @@ export default function PurchaseManager({
                   className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
                 >
                   <div className="flex flex-wrap items-center gap-4">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 text-[10px] font-bold text-gray-400">
-                      発注
-                    </div>
+                    {imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={imageUrl}
+                        alt=""
+                        className="h-14 w-14 rounded-xl border border-gray-200 object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 text-[10px] font-bold text-gray-400">
+                        発注
+                      </div>
+                    )}
 
-                    <div className="min-w-[220px] flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="font-mono text-base font-black text-gray-900">
-                          {purchaseSku || "発注SKU未設定"}
-                        </div>
-
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${isRegistered ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
-                          {isRegistered ? "発注SKU登録済" : "発注SKU未登録"}
-                        </span>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewItem({ masterSku, purchaseSku, displayJan, productName: productName || "商品名未設定", imageUrl, color, size, url1688, chinaOrderQty: recommendedOrderQty, moq, orderUnit })}
+                      className="min-w-[220px] flex-1 rounded-lg p-1 text-left hover:bg-indigo-50"
+                    >
+                      <div className="max-w-[760px] truncate text-base font-black text-gray-900">
+                        {productName || "商品名未設定"}
                       </div>
 
                       <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
+                        <span className="font-mono">SKU: {purchaseSku || "-"}</span>
+                        {displayJan && <span className="font-mono">JAN: {displayJan}</span>}
                         {color && <span>色: {color}</span>}
                         {size && <span>サイズ: {size}</span>}
+                      </div>
+
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${isRegistered ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                          {isRegistered ? "発注SKU登録済" : "発注SKU未登録"}
+                        </span>
+
                         {url1688 ? (
                           <a
                             href={url1688}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-indigo-600 underline underline-offset-2"
+                            onClick={(event) => event.stopPropagation()}
+                            className="text-xs font-bold text-indigo-600 underline underline-offset-2"
                           >
                             1688URL
                           </a>
                         ) : (
-                          <span>1688URL: -</span>
+                          <span className="text-xs text-gray-400">1688URL: -</span>
                         )}
                       </div>
-                    </div>
+
+                      <div className="mt-1 text-[10px] font-bold text-indigo-500">
+                        クリックでマスタ情報
+                      </div>
+                    </button>
 
                     <div className="flex flex-wrap items-center gap-2">
-                      <PurchaseDecisionCell label="必要数" value={requiredQty} tone="blue" />
-                      <PurchaseDecisionCell label="AP在庫" value={apStock} tone="gray" />
-                      <PurchaseDecisionCell label="不足数" value={shortageQty} tone="red" />
-                      <PurchaseDecisionCell label="推奨発注数" value={recommendedOrderQty} tone="orange" />
+                      <div className="min-w-[180px] rounded-2xl border border-orange-200 bg-orange-50 px-6 py-4 text-center text-orange-700">
+                        <div className="text-[12px] font-black opacity-80">中国発注数</div>
+                        <div className="mt-1 text-3xl font-black tabular-nums">
+                          {formatQty(recommendedOrderQty)}
+                          <span className="ml-1 text-sm font-black">個</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -871,15 +1000,6 @@ export default function PurchaseManager({
                         placeholder="任意"
                       />
                     </div>
-                  </div>
-
-                  <div className="mt-3">
-                    <PurchaseReasonSummary
-                      requiredQty={requiredQty}
-                      apStock={apStock}
-                      shortageQty={shortageQty}
-                      recommendedOrderQty={recommendedOrderQty}
-                    />
                   </div>
                 </div>
               );
@@ -1136,6 +1256,15 @@ export default function PurchaseManager({
           </div>
         )}
       </div>
+
+      {previewItem && (
+        <PurchaseMasterPreviewModal
+          item={previewItem}
+          master={productMasters[previewItem.masterSku]}
+          onClose={() => setPreviewItem(null)}
+          onOpenMaster={onOpenMaster}
+        />
+      )}
     </div>
   );
 }

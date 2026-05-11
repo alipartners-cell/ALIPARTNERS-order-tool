@@ -837,6 +837,8 @@ export default function HomePage() {
                   purchaseSkuSummaryRows={purchaseSkuSummaryRows}
                   manualPurchaseOrders={manualPurchaseOrders}
                   setManualPurchaseOrders={setManualPurchaseOrders}
+                  onOpenMaster={openProductMasterForSku}
+                  productMasters={productMasterBySku}
                 />
               ) : viewMode === "apStock" ? (
                 <ApStockView
