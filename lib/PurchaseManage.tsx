@@ -249,6 +249,7 @@ export default function PurchaseManager({
   const [editingPurchaseSku, setEditingPurchaseSku] = useState("");
   const [showOnlyOrderRequired, setShowOnlyOrderRequired] = useState(false);
   const [expandedPurchaseRows, setExpandedPurchaseRows] = useState<Set<string>>(new Set());
+  const [selectedPurchaseRowKeys, setSelectedPurchaseRowKeys] = useState<Set<string>>(new Set());
   const [previewItem, setPreviewItem] = useState<PurchasePreviewState | null>(null);
 
   const sortedPurchaseSkuSummaryRows = useMemo(() => {
@@ -274,6 +275,46 @@ export default function PurchaseManager({
       getText(row.sku) ||
       `purchase-row-${index}`
     );
+  };
+
+
+  const visiblePurchaseRowKeys = useMemo(
+    () => sortedPurchaseSkuSummaryRows.map((row, index) => getPurchaseRowKey(row, index)),
+    [sortedPurchaseSkuSummaryRows]
+  );
+
+  const selectedVisiblePurchaseRowCount = visiblePurchaseRowKeys.filter((key) =>
+    selectedPurchaseRowKeys.has(key)
+  ).length;
+
+  const allVisiblePurchaseRowsSelected =
+    visiblePurchaseRowKeys.length > 0 &&
+    selectedVisiblePurchaseRowCount === visiblePurchaseRowKeys.length;
+
+  const handleToggleAllVisiblePurchaseRows = () => {
+    setSelectedPurchaseRowKeys((prev) => {
+      const next = new Set(prev);
+
+      if (allVisiblePurchaseRowsSelected) {
+        visiblePurchaseRowKeys.forEach((key) => next.delete(key));
+      } else {
+        visiblePurchaseRowKeys.forEach((key) => next.add(key));
+      }
+
+      return next;
+    });
+  };
+
+  const handleTogglePurchaseRowSelection = (rowKey: string) => {
+    setSelectedPurchaseRowKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowKey)) {
+        next.delete(rowKey);
+      } else {
+        next.add(rowKey);
+      }
+      return next;
+    });
   };
 
   const handleExpandAllPurchaseRows = () => {
@@ -353,44 +394,82 @@ export default function PurchaseManager({
   };
 
   const handleExportPurchaseSkusCsv = () => {
+    const selectedRows = sortedPurchaseSkuSummaryRows.filter((row, index) =>
+      selectedPurchaseRowKeys.has(getPurchaseRowKey(row, index))
+    );
+
+    if (selectedRows.length === 0) {
+      alert("発注CSVをダウンロードする商品を選択してください");
+      return;
+    }
+
     const headers = [
-      "purchase_sku",
-      "parent_jan",
-      "color",
-      "size",
-      "ap_stock",
-      "moq",
-      "order_unit",
-      "recommended_order_qty",
-      "url_1688",
-      "enabled",
+      "商品名",
+      "発注SKU/JAN",
+      "JAN",
+      "中国発注数",
+      "必要数",
+      "FBA/RSL在庫",
+      "FBA/RSL理論在庫",
+      "AP在庫",
+      "MOQ",
+      "発注単位",
+      "手動発注数",
+      "色",
+      "サイズ",
+      "1688URL",
     ];
 
-    const rows = purchaseSkus.map((item) => [
-      item.purchase_sku,
-      item.parent_jan,
-      item.color,
-      item.size,
-      item.ap_stock,
-      (item as any).moq,
-      (item as any).order_unit,
-      item.recommended_order_qty,
-      item.url_1688,
-      item.enabled !== false ? "true" : "false",
-    ]);
+    const rows = selectedRows.map((rawRow, index) => {
+      const row = rawRow as unknown as Record<string, unknown>;
+      const purchaseSku =
+        getText(row.purchase_sku) ||
+        getText(row.component_purchase_sku) ||
+        getText(row.sku);
+      const displayJan =
+        getText(row.display_jan) ||
+        getText(row.sales_jan) ||
+        (/^\d{8,14}$/.test(purchaseSku) ? purchaseSku : "");
+      const productName =
+        getText(row.product_name) ||
+        getText(row.productName) ||
+        getText(row.name);
+      const sourceType = getText(row.source_type);
+      const fbaRslStock = getNumber(row.fba_rsl_stock);
+      const theoreticalStock = getNumber(row.theoretical_stock);
+      const recommendedOrderQty =
+        getNumber(row.recommended_order_qty) ||
+        getNumber(row.final_recommended_order_qty);
+      const manualQty = purchaseSku && manualPurchaseOrders[purchaseSku] !== undefined
+        ? manualPurchaseOrders[purchaseSku]
+        : "";
+
+      return [
+        productName,
+        purchaseSku,
+        displayJan,
+        recommendedOrderQty,
+        getNumber(row.required_qty) || getNumber(row.total_required_qty) || getNumber(row.required_component_qty),
+        sourceType === "component_purchase_sku" ? "" : fbaRslStock,
+        sourceType === "component_purchase_sku" ? theoreticalStock : "",
+        getNumber(row.ap_stock) || getNumber(row.purchase_sku_ap_stock),
+        getNumber(row.moq),
+        getNumber(row.order_unit),
+        manualQty,
+        getText(row.color),
+        getText(row.size),
+        getText(row.url_1688),
+      ];
+    });
 
     const csv =
-      "\ufeff" +
+      "﻿" +
       [headers, ...rows]
         .map((row) => row.map(escapeCsvValue).join(","))
         .join("\n");
 
     const ts = new Date().toISOString().slice(0, 10);
-    downloadTextFile(
-      csv,
-      `purchase_skus_${ts}.csv`,
-      "text/csv;charset=utf-8"
-    );
+    downloadTextFile(csv, `purchase_order_${ts}.csv`, "text/csv;charset=utf-8");
   };
 
   const normalizeImportedPurchaseSku = (
@@ -636,66 +715,6 @@ export default function PurchaseManager({
 
   return (
     <div className="space-y-6 p-6">
-      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-black text-gray-900">発注管理</h2>
-
-            <div className="mt-4 flex flex-wrap gap-6 text-sm font-bold text-gray-700">
-              <p>発注SKU数：{purchaseSkus.length.toLocaleString()}件</p>
-              <p>構成分解行数：{purchaseBreakdownRows.length.toLocaleString()}件</p>
-              <p>SKU別集計：{purchaseSkuSummaryRows.length.toLocaleString()}件</p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              onClick={handleExportPurchaseSkusCsv}
-              className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
-            >
-              CSV出力
-            </button>
-
-            <button
-              type="button"
-              onClick={handleImportPurchaseSkusCsv}
-              className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50"
-            >
-              CSV取込
-            </button>
-
-            <button
-              type="button"
-              onClick={handleExportPurchaseBackup}
-              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50"
-            >
-              バックアップ
-            </button>
-
-            <button
-              type="button"
-              onClick={handleImportPurchaseBackup}
-              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50"
-            >
-              復元
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setPurchaseFormOpen((v) => !v)}
-              className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-500"
-            >
-              {purchaseFormOpen
-                ? editingPurchaseSku
-                  ? "発注SKU編集を閉じる ▲"
-                  : "発注SKU追加を閉じる ▲"
-                : "発注SKUを追加 ▼"}
-            </button>
-          </div>
-        </div>
-      </div>
-
       {purchaseFormOpen && (
         <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5 shadow-sm">
           <div className="mb-4">
@@ -855,15 +874,34 @@ export default function PurchaseManager({
       )}
 
       <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-black text-gray-900">中国発注数一覧</h3>
-            <p className="mt-1 text-xs font-semibold text-gray-500">
-              発注SKU単位で、中国へ何を何個発注するかを確認します。
-            </p>
-          </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <label className="flex items-center gap-2 text-sm font-black text-gray-800">
+            <input
+              type="checkbox"
+              checked={allVisiblePurchaseRowsSelected}
+              onChange={handleToggleAllVisiblePurchaseRows}
+              className="h-4 w-4"
+            />
+            表示中の商品を選択
+          </label>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <span className="rounded-xl bg-gray-50 px-3 py-2 text-xs font-bold text-gray-500">
+              選択 {selectedPurchaseRowKeys.size.toLocaleString()}件
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setShowOnlyOrderRequired((v) => !v)}
+              className={`rounded-xl border px-3 py-2 text-xs font-bold ${
+                showOnlyOrderRequired
+                  ? "border-orange-200 bg-orange-50 text-orange-700"
+                  : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              中国発注ありのみ
+            </button>
+
             <button
               type="button"
               onClick={handleExpandAllPurchaseRows}
@@ -882,18 +920,20 @@ export default function PurchaseManager({
 
             <button
               type="button"
-              onClick={() => setShowOnlyOrderRequired((v) => !v)}
-              className={`rounded-xl border px-3 py-2 text-xs font-bold ${
-                showOnlyOrderRequired
-                  ? "border-orange-200 bg-orange-50 text-orange-700"
-                  : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+              onClick={handleExportPurchaseSkusCsv}
+              className={`rounded-xl px-4 py-2 text-xs font-bold shadow-sm ${
+                selectedPurchaseRowKeys.size > 0
+                  ? "bg-indigo-600 text-white hover:bg-indigo-500"
+                  : "cursor-not-allowed bg-gray-200 text-gray-500"
               }`}
             >
-              中国発注ありのみ
+              発注CSVダウンロード{selectedPurchaseRowKeys.size > 0 ? `（${selectedPurchaseRowKeys.size}件）` : ""}
             </button>
           </div>
         </div>
+      </div>
 
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
         {sortedPurchaseSkuSummaryRows.length === 0 ? (
           <div className="rounded-xl border border-gray-200 bg-gray-50 py-16 text-center text-sm font-bold text-gray-400">
             中国発注数データはまだありません。
@@ -974,6 +1014,13 @@ export default function PurchaseManager({
                   className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
                 >
                   <div className="flex flex-wrap items-center gap-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedPurchaseRowKeys.has(rowKey)}
+                      onChange={() => handleTogglePurchaseRowSelection(rowKey)}
+                      className="h-4 w-4"
+                    />
+
                     {imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -1088,255 +1135,6 @@ export default function PurchaseManager({
                 </div>
               );
             })}
-          </div>
-        )}
-      </div>
-
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <button
-          type="button"
-          onClick={() => setShowPurchaseSkus((v) => !v)}
-          className="flex w-full items-center justify-between border-b border-gray-200 bg-gray-50 px-5 py-4 text-left"
-        >
-          <div>
-            <h3 className="text-sm font-black text-gray-900">発注SKU一覧</h3>
-            <p className="mt-1 text-xs font-semibold text-gray-500">
-              発注SKUマスタの確認用。必要なときだけ開きます。
-            </p>
-          </div>
-
-          <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-bold text-gray-600">
-            {showPurchaseSkus ? "閉じる ▲" : "開く ▼"}
-          </span>
-        </button>
-
-        {showPurchaseSkus && (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-left text-xs">
-              <thead className="bg-gray-50 text-gray-500">
-                <tr className="border-b border-gray-200">
-                  <th className="px-3 py-2">発注SKU</th>
-                  <th className="px-3 py-2">親JAN</th>
-                  <th className="px-3 py-2">色</th>
-                  <th className="px-3 py-2">サイズ</th>
-                  <th className="px-3 py-2 text-right">AP在庫</th>
-                  <th className="px-3 py-2 text-right">MOQ</th>
-                  <th className="px-3 py-2 text-right">発注単位</th>
-                  <th className="px-3 py-2">1688URL</th>
-                  <th className="px-3 py-2 text-right">操作</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {purchaseSkus.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={9}
-                      className="px-3 py-10 text-center text-sm font-bold text-gray-400"
-                    >
-                      発注SKUデータはまだありません。
-                    </td>
-                  </tr>
-                ) : (
-                  purchaseSkus.map((item) => (
-                    <tr
-                      key={item.purchase_sku}
-                      className="border-b border-gray-100 hover:bg-indigo-50/30"
-                    >
-                      <td className="px-3 py-3 font-mono font-bold text-gray-900">
-                        {item.purchase_sku || "-"}
-                      </td>
-
-                      <td className="px-3 py-3 font-mono text-gray-600">
-                        {item.parent_jan || "-"}
-                      </td>
-
-                      <td className="px-3 py-3 text-gray-700">
-                        {item.color || "-"}
-                      </td>
-
-                      <td className="px-3 py-3 text-gray-700">
-                        {item.size || "-"}
-                      </td>
-
-                      <td className="px-3 py-3 text-right font-bold text-gray-900">
-                        {getNumber(item.ap_stock).toLocaleString()}
-                      </td>
-
-                      <td className="px-3 py-3 text-right font-bold text-gray-700">
-                        {getNumber(item.moq).toLocaleString()}
-                      </td>
-
-                      <td className="px-3 py-3 text-right font-bold text-gray-700">
-                        {getNumber(item.order_unit).toLocaleString()}
-                      </td>
-
-                      <td className="max-w-[280px] px-3 py-3">
-                        {item.url_1688 ? (
-                          <a
-                            href={item.url_1688}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="block truncate text-indigo-600 underline underline-offset-2"
-                          >
-                            {item.url_1688}
-                          </a>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </td>
-
-                      <td className="px-3 py-3 text-right">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleStartEditPurchaseSku(item)}
-                            className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100"
-                          >
-                            編集
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleDeletePurchaseSku(
-                                String(item.purchase_sku ?? "").trim()
-                              )
-                            }
-                            className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-[11px] font-bold text-red-700 hover:bg-red-100"
-                          >
-                            削除
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <button
-          type="button"
-          onClick={() => setShowBreakdown((v) => !v)}
-          className="flex w-full items-center justify-between border-b border-gray-200 bg-gray-50 px-5 py-4 text-left"
-        >
-          <div>
-            <h3 className="text-sm font-black text-gray-900">
-              構成分解プレビュー
-            </h3>
-            <p className="mt-1 text-xs font-semibold text-gray-500">
-              component_purchase_sku_1〜5 が設定されている商品のみ表示します。
-            </p>
-          </div>
-
-          <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-bold text-gray-600">
-            {showBreakdown ? "閉じる ▲" : "開く ▼"}
-          </span>
-        </button>
-
-        {showBreakdown && (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] text-left text-xs">
-              <thead className="bg-gray-50 text-gray-500">
-                <tr className="border-b border-gray-200">
-                  <th className="px-3 py-2">販売SKU</th>
-                  <th className="px-3 py-2">販売JAN</th>
-                  <th className="px-3 py-2">発注SKU</th>
-                  <th className="px-3 py-2 text-right">必要部材数</th>
-                  <th className="px-3 py-2 text-right">AP在庫</th>
-                  <th className="px-3 py-2 text-right">不足数</th>
-                  <th className="px-3 py-2 text-right">推奨発注数</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {purchaseBreakdownRows.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="px-3 py-10 text-center text-sm font-bold text-gray-400"
-                    >
-                      component_purchase_sku_1〜5 が未設定のため、まだ表示データがありません。
-                    </td>
-                  </tr>
-                ) : (
-                  purchaseBreakdownRows.map((rawRow, index) => {
-                    const row = rawRow as unknown as Record<string, unknown>;
-
-                    const parentSku =
-                      getText(row.parent_sku) ||
-                      getText(row.sales_sku) ||
-                      getText(row.sku);
-
-                    const parentJan =
-                      getText(row.parent_jan) ||
-                      getText(row.sales_jan) ||
-                      getText(row.jan);
-
-                    const purchaseSku =
-                      getText(row.purchase_sku) ||
-                      getText(row.component_purchase_sku) ||
-                      getText(row.componentSku);
-
-                    const requiredQty =
-                      getNumber(row.required_qty) ||
-                      getNumber(row.required_component_qty) ||
-                      getNumber(row.component_required_qty);
-
-                    const apStock =
-                      getNumber(row.ap_stock) ||
-                      getNumber(row.purchase_sku_ap_stock);
-
-                    const shortageQty =
-                      getNumber(row.shortage_qty) ||
-                      getNumber(row.component_shortage_qty);
-
-                    const recommendedOrderQty =
-                      getNumber(row.recommended_order_qty) ||
-                      getNumber(row.purchase_recommended_order_qty);
-
-                    return (
-                      <tr
-                        key={`${purchaseSku || parentSku || "row"}-${index}`}
-                        className="border-b border-gray-100 hover:bg-amber-50/30"
-                      >
-                        <td className="px-3 py-3 font-mono text-gray-700">
-                          {parentSku || "-"}
-                        </td>
-
-                        <td className="px-3 py-3 font-mono text-gray-600">
-                          {parentJan || "-"}
-                        </td>
-
-                        <td className="px-3 py-3 font-mono font-bold text-gray-900">
-                          {purchaseSku || "-"}
-                        </td>
-
-                        <td className="px-3 py-3 text-right font-bold text-gray-900">
-                          {requiredQty.toLocaleString()}
-                        </td>
-
-                        <td className="px-3 py-3 text-right font-bold text-sky-700">
-                          {apStock.toLocaleString()}
-                        </td>
-
-                        <td className="px-3 py-3 text-right font-bold text-red-600">
-                          {shortageQty.toLocaleString()}
-                        </td>
-
-                        <td className="px-3 py-3 text-right font-bold text-amber-700">
-                          {recommendedOrderQty.toLocaleString()}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
           </div>
         )}
       </div>
