@@ -19,6 +19,8 @@ export type PurchaseBreakdownRow = {
   display_jan?: string;
   fba_rsl_stock?: number;
   theoretical_stock?: number;
+  daily_sales?: number;
+  total_lead_time_days?: number;
 };
 
 export type PurchaseSkuSummaryRow = {
@@ -40,6 +42,8 @@ export type PurchaseSkuSummaryRow = {
   display_jan?: string;
   fba_rsl_stock?: number;
   theoretical_stock?: number;
+  daily_sales?: number;
+  total_lead_time_days?: number;
 };
 
 function cleanText(value: unknown) {
@@ -74,6 +78,25 @@ function getSalesSideStock(row: any) {
   );
 
   return fbaStock + rslStock + fbaInbound + rslInbound;
+}
+
+
+function getDailySales(row: any) {
+  const amazonDaily = safeNumber(row?.amazon_daily_sales ?? row?.amazonDailySales ?? row?.fba_daily_sales ?? 0);
+  const rakutenDaily = safeNumber(row?.rakuten_daily_sales ?? row?.rakutenDailySales ?? row?.rsl_daily_sales ?? 0);
+  return Math.max(0, amazonDaily + rakutenDaily);
+}
+
+function getTotalLeadTimeDays(row: any) {
+  return positiveInteger(
+    row?.total_lead_time_days ??
+      row?.totalLeadTimeDays ??
+      row?.total_lt_days ??
+      row?.totalLtDays ??
+      row?.lead_time_days ??
+      row?.leadTimeDays ??
+      0
+  );
 }
 
 function normalizeItemType(value: unknown) {
@@ -280,6 +303,8 @@ export function buildPurchaseBreakdownRows(
       row?.recommended_order_qty || row?.shortage_qty || 0
     );
     const salesSideStock = getSalesSideStock(row);
+    const dailySales = getDailySales(row);
+    const totalLeadTimeDays = getTotalLeadTimeDays(row);
 
     const componentRows: PurchaseBreakdownRow[] = [1, 2, 3, 4, 5].flatMap((n) => {
       const componentPurchaseSku = cleanText(
@@ -325,6 +350,8 @@ export function buildPurchaseBreakdownRows(
           display_jan: meta.displayJan || cleanJan(row?.jan),
           fba_rsl_stock: sourceType === "component_jan" ? salesSideStock * componentQty : 0,
           theoretical_stock: sourceType === "component_purchase_sku" ? salesSideStock * componentQty : 0,
+          daily_sales: dailySales * componentQty,
+          total_lead_time_days: totalLeadTimeDays,
         },
       ];
     });
@@ -369,6 +396,8 @@ export function buildPurchaseBreakdownRows(
         display_jan: meta.displayJan || selfJan,
         fba_rsl_stock: salesSideStock,
         theoretical_stock: 0,
+        daily_sales: dailySales,
+        total_lead_time_days: totalLeadTimeDays,
       },
     ];
   });
@@ -423,6 +452,14 @@ export function buildPurchaseSkuSummaryRows(
     const theoreticalStock =
       (current?.theoretical_stock ?? 0) + positiveInteger(row.theoretical_stock ?? 0);
 
+    const dailySales =
+      (current?.daily_sales ?? 0) + safeNumber(row.daily_sales ?? 0);
+
+    const totalLeadTimeDays = Math.max(
+      positiveInteger(current?.total_lead_time_days ?? 0),
+      positiveInteger(row.total_lead_time_days ?? 0)
+    );
+
     summaryMap.set(purchaseSku, {
       purchase_sku: purchaseSku,
       product_name:
@@ -455,6 +492,8 @@ export function buildPurchaseSkuSummaryRows(
       display_jan: current?.display_jan ?? row.display_jan,
       fba_rsl_stock: fbaRslStock,
       theoretical_stock: theoreticalStock,
+      daily_sales: dailySales,
+      total_lead_time_days: totalLeadTimeDays,
     });
   });
 
