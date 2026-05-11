@@ -248,6 +248,7 @@ export default function PurchaseManager({
   );
   const [editingPurchaseSku, setEditingPurchaseSku] = useState("");
   const [showOnlyOrderRequired, setShowOnlyOrderRequired] = useState(false);
+  const [expandedPurchaseRows, setExpandedPurchaseRows] = useState<Set<string>>(new Set());
   const [previewItem, setPreviewItem] = useState<PurchasePreviewState | null>(null);
 
   const sortedPurchaseSkuSummaryRows = useMemo(() => {
@@ -264,6 +265,42 @@ export default function PurchaseManager({
       return qty > 0;
     });
   }, [purchaseSkuSummaryRows, showOnlyOrderRequired]);
+
+  const getPurchaseRowKey = (rawRow: unknown, index: number) => {
+    const row = rawRow as Record<string, unknown>;
+    return (
+      getText(row.purchase_sku) ||
+      getText(row.component_purchase_sku) ||
+      getText(row.sku) ||
+      `purchase-row-${index}`
+    );
+  };
+
+  const handleExpandAllPurchaseRows = () => {
+    setExpandedPurchaseRows(
+      new Set(
+        sortedPurchaseSkuSummaryRows.map((row, index) =>
+          getPurchaseRowKey(row, index)
+        )
+      )
+    );
+  };
+
+  const handleCollapseAllPurchaseRows = () => {
+    setExpandedPurchaseRows(new Set());
+  };
+
+  const handleTogglePurchaseRowDetail = (rowKey: string) => {
+    setExpandedPurchaseRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowKey)) {
+        next.delete(rowKey);
+      } else {
+        next.add(rowKey);
+      }
+      return next;
+    });
+  };
 
   const resetPurchaseForm = () => {
     setPurchaseForm(EMPTY_PURCHASE_SKU_FORM);
@@ -826,17 +863,35 @@ export default function PurchaseManager({
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowOnlyOrderRequired((v) => !v)}
-            className={`rounded-xl border px-3 py-2 text-xs font-bold ${
-              showOnlyOrderRequired
-                ? "border-orange-200 bg-orange-50 text-orange-700"
-                : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            中国発注ありのみ
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleExpandAllPurchaseRows}
+              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+            >
+              すべての詳細を表示
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCollapseAllPurchaseRows}
+              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+            >
+              すべて閉じる
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowOnlyOrderRequired((v) => !v)}
+              className={`rounded-xl border px-3 py-2 text-xs font-bold ${
+                showOnlyOrderRequired
+                  ? "border-orange-200 bg-orange-50 text-orange-700"
+                  : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              中国発注ありのみ
+            </button>
+          </div>
         </div>
 
         {sortedPurchaseSkuSummaryRows.length === 0 ? (
@@ -884,6 +939,18 @@ export default function PurchaseManager({
                 getNumber(row.recommended_order_qty) ||
                 getNumber(row.final_recommended_order_qty);
 
+              const sourceType = getText(row.source_type);
+              const fbaRslStock = getNumber(row.fba_rsl_stock);
+              const theoreticalStock = getNumber(row.theoretical_stock);
+              const stockLabel =
+                sourceType === "component_purchase_sku"
+                  ? "FBA/RSL理論在庫"
+                  : "FBA/RSL在庫";
+              const stockValue =
+                sourceType === "component_purchase_sku"
+                  ? theoreticalStock
+                  : fbaRslStock;
+
               const manualQty =
                 purchaseSku && manualPurchaseOrders[purchaseSku] !== undefined
                   ? manualPurchaseOrders[purchaseSku]
@@ -898,10 +965,12 @@ export default function PurchaseManager({
                 getText(row.product_image_url) ||
                 getText(row.thumbnail_url);
               const isRegistered = Boolean(row.is_registered_purchase_sku);
+              const rowKey = getPurchaseRowKey(rawRow, index);
+              const isDetailOpen = expandedPurchaseRows.has(rowKey);
 
               return (
                 <div
-                  key={`${purchaseSku || "summary"}-${index}`}
+                  key={rowKey}
                   className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
                 >
                   <div className="flex flex-wrap items-center gap-4">
@@ -970,36 +1039,51 @@ export default function PurchaseManager({
                     </div>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
-                    <PurchaseMetricLine label="MOQ" value={formatQty(moq)} unit="個" />
-                    <PurchaseMetricLine label="発注単位" value={formatQty(orderUnit)} unit="個" />
-                    <div className="flex items-center justify-between gap-3 rounded-lg bg-white/75 px-2.5 py-1.5">
-                      <span className="text-[11px] font-bold text-gray-400">手動発注数</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={manualQty}
-                        onChange={(event) => {
-                          if (!purchaseSku) return;
+                  {isDetailOpen && (
+                    <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-6">
+                      <PurchaseMetricLine label="必要数" value={formatQty(requiredQty)} unit="個" />
+                      <PurchaseMetricLine label={stockLabel} value={formatQty(stockValue)} unit="個" />
+                      <PurchaseMetricLine label="AP在庫" value={formatQty(apStock)} unit="個" />
+                      <PurchaseMetricLine label="MOQ" value={formatQty(moq)} unit="個" />
+                      <PurchaseMetricLine label="発注単位" value={formatQty(orderUnit)} unit="個" />
+                      <div className="flex items-center justify-between gap-3 rounded-lg bg-white/75 px-2.5 py-1.5">
+                        <span className="text-[11px] font-bold text-gray-400">手動発注数</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={manualQty}
+                          onChange={(event) => {
+                            if (!purchaseSku) return;
 
-                          const nextValue = event.target.value;
+                            const nextValue = event.target.value;
 
-                          setManualPurchaseOrders((prev) => {
-                            const next = { ...prev };
+                            setManualPurchaseOrders((prev) => {
+                              const next = { ...prev };
 
-                            if (nextValue === "") {
-                              delete next[purchaseSku];
+                              if (nextValue === "") {
+                                delete next[purchaseSku];
+                                return next;
+                              }
+
+                              next[purchaseSku] = getFormNumber(nextValue);
                               return next;
-                            }
-
-                            next[purchaseSku] = getFormNumber(nextValue);
-                            return next;
-                          });
-                        }}
-                        className="w-28 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-right text-xs font-bold text-gray-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                        placeholder="任意"
-                      />
+                            });
+                          }}
+                          className="w-28 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-right text-xs font-bold text-gray-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                          placeholder="任意"
+                        />
+                      </div>
                     </div>
+                  )}
+
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePurchaseRowDetail(rowKey)}
+                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50"
+                    >
+                      {isDetailOpen ? "詳細を閉じる" : "詳細を見る"}
+                    </button>
                   </div>
                 </div>
               );

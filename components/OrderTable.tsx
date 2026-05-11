@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import MasterPreviewModal from "@/components/MasterPreviewModal";
 import SkuSettingsModal from "@/components/SkuSettingsModal";
 import DecisionCell from "@/components/order-table/DecisionCell";
-import StatusStack from "@/components/order-table/StatusStack";
 
 import type {
   ComputedSkuRow,
@@ -28,10 +27,6 @@ interface Props {
   onToggleExpanded: (sku: string) => void;
 }
 
-function qtyText(value: number) {
-  return value > 0 ? Number(value).toLocaleString() : "—";
-}
-
 function smallNum(value: number) {
   return Number.isInteger(value) ? Number(value).toLocaleString() : Number(value).toFixed(1);
 }
@@ -51,38 +46,6 @@ function deliveryUnit(unitPerSet: number) {
 function setDescription(unitPerSet: number) {
   return unitPerSet > 1 ? `1セット=${unitPerSet}個` : "";
 }
-
-function toBaraQty(qty: number, unitPerSet: number) {
-  return Math.max(0, Number(qty || 0)) * unitPerSet;
-}
-
-function setEquivalent(value: number, unitPerSet: number) {
-  if (unitPerSet <= 1) return "";
-  const sets = Math.floor(Number(value || 0) / unitPerSet);
-  return `約${sets.toLocaleString()}セット相当`;
-}
-
-
-function DetailPill({
-  label,
-  value,
-  unit = "",
-  subLabel = "",
-}: {
-  label: string;
-  value: number | string;
-  unit?: string;
-  subLabel?: string;
-}) {
-  return (
-    <div className="rounded-lg bg-gray-50 px-2.5 py-1.5 text-[11px] text-gray-600">
-      <span className="font-semibold text-gray-400">{label}</span>
-      <span className="ml-1 font-bold text-gray-700">{value}{unit}</span>
-      {subLabel && <div className="mt-0.5 text-[10px] font-bold text-gray-400">{subLabel}</div>}
-    </div>
-  );
-}
-
 
 function MetricLine({ label, value, unit = "" }: { label: string; value: number | string; unit?: string }) {
   return (
@@ -141,17 +104,14 @@ function OrderReasonSummary({
   availableTotalSet,
   shortageSet,
   unitPerSet,
-  orderQtyBara,
   totalLeadTimeDays,
 }: {
   requiredTotalSet: number;
   availableTotalSet: number;
   shortageSet: number;
   unitPerSet: number;
-  orderQtyBara: number;
   totalLeadTimeDays: number;
 }) {
-  const isSetProduct = unitPerSet > 1;
   return (
     <div className="rounded-2xl border border-gray-200 bg-gray-50/70 px-3 py-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-black text-gray-800">
@@ -162,11 +122,9 @@ function OrderReasonSummary({
         <span>有効在庫 {smallNum(availableTotalSet)}セット</span>
         <span>=</span>
         <span>不足 {smallNum(shortageSet)}セット</span>
-        <span>→</span>
-        <span>中国発注 {smallNum(orderQtyBara)}個</span>
       </div>
       <div className="mt-1 text-[10px] font-bold text-gray-500">
-        必要数は「Amazon日販＋楽天日販」× 総LT{smallNum(totalLeadTimeDays)}日。{isSetProduct ? `発注数は不足セット数×${unitPerSet}個/セットでバラ換算。` : "発注数は不足数をバラ数として表示。"}
+        必要数は「Amazon日販＋楽天日販」× 総LT{smallNum(totalLeadTimeDays)}日。AP在庫はセット換算して有効在庫に含めています。
       </div>
     </div>
   );
@@ -189,18 +147,11 @@ export default function OrderTable({
   const [masterPreviewRow, setMasterPreviewRow] = useState<ComputedSkuRow | null>(null);
 
   const visibleRows = useMemo(() => {
-    const filtered = filterOrderOnly || filterDeliveryOnly
-      ? rows.filter((r) => {
-          const isOrder = r.status === "発注推奨" || r.recommended_order_qty > 0;
-          const isDelivery = r.fba_recommended_delivery_qty > 0 || r.rsl_recommended_delivery_qty > 0;
-          return (filterOrderOnly && isOrder) || (filterDeliveryOnly && isDelivery);
-        })
+    const filtered = filterDeliveryOnly
+      ? rows.filter((r) => r.fba_recommended_delivery_qty > 0 || r.rsl_recommended_delivery_qty > 0)
       : rows;
-    return [...filtered].sort((a, b) => {
-      if (sortType === "china") {
-        return Number(b.recommended_order_qty || 0) - Number(a.recommended_order_qty || 0);
-      }
 
+    return [...filtered].sort((a, b) => {
       if (sortType === "fba") {
         return Number(b.fba_recommended_delivery_qty || 0) - Number(a.fba_recommended_delivery_qty || 0);
       }
@@ -209,11 +160,11 @@ export default function OrderTable({
         return Number(b.rsl_recommended_delivery_qty || 0) - Number(a.rsl_recommended_delivery_qty || 0);
       }
 
-      const aPriority = (a.recommended_order_qty > 0 ? 1000000000 : 0) + a.recommended_order_qty + a.fba_recommended_delivery_qty + a.rsl_recommended_delivery_qty;
-      const bPriority = (b.recommended_order_qty > 0 ? 1000000000 : 0) + b.recommended_order_qty + b.fba_recommended_delivery_qty + b.rsl_recommended_delivery_qty;
+      const aPriority = Number(a.fba_recommended_delivery_qty || 0) + Number(a.rsl_recommended_delivery_qty || 0);
+      const bPriority = Number(b.fba_recommended_delivery_qty || 0) + Number(b.rsl_recommended_delivery_qty || 0);
       return bPriority - aPriority;
     });
-  }, [rows, filterOrderOnly, filterDeliveryOnly, sortType]);
+  }, [rows, filterDeliveryOnly, sortType]);
 
   return (
     <div className="bg-gray-50 p-4">
@@ -224,11 +175,8 @@ export default function OrderTable({
           {visibleRows.map((row) => {
             const master = productMasters[row.sku];
             const unitPerSet = getUnitPerSet(row, master);
-            const isSetProduct = unitPerSet > 1;
             const deliveryUnitLabel = deliveryUnit(unitPerSet);
             const deliverySubLabel = setDescription(unitPerSet);
-            const chinaOrderQtyBara = Math.max(0, Number(row.recommended_order_qty || 0));
-            const shortageQtyBara = toBaraQty(row.shortage_qty, unitPerSet);
             const isExpanded = expandedSkus.has(row.sku);
             return (
               <div key={row.sku} className={`rounded-2xl border bg-white p-4 shadow-sm ${selected.has(row.sku) ? "border-indigo-300 ring-2 ring-indigo-100" : "border-gray-200"}`}>
@@ -255,10 +203,15 @@ export default function OrderTable({
                   <div className="flex flex-wrap items-center gap-2">
                     <DecisionCell label="FBA推奨納品数" value={row.fba_recommended_delivery_qty} unit={deliveryUnitLabel} subLabel={deliverySubLabel} tone="blue" />
                     <DecisionCell label="RSL推奨納品数" value={row.rsl_recommended_delivery_qty} unit={deliveryUnitLabel} subLabel={deliverySubLabel} tone="green" />
-                    <DecisionCell label="中国発注数" value={chinaOrderQtyBara} unit="個（バラ）" tone="orange" />
                   </div>
 
-                  <StatusStack row={row} />
+                  <div className="flex min-w-[92px] justify-end">
+                    {row.fba_recommended_delivery_qty > 0 || row.rsl_recommended_delivery_qty > 0 ? (
+                      <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">納品推奨</span>
+                    ) : (
+                      <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-black text-gray-500">対応不要</span>
+                    )}
+                  </div>
                 </div>
 
                 {isExpanded && (
@@ -293,7 +246,6 @@ export default function OrderTable({
                       availableTotalSet={row.amazon_stock + row.rakuten_stock + row.fba_inbound_plan + row.rsl_inbound_plan + Math.floor(Number(row.ap_stock || 0) / unitPerSet)}
                       shortageSet={row.shortage_qty}
                       unitPerSet={unitPerSet}
-                      orderQtyBara={chinaOrderQtyBara}
                       totalLeadTimeDays={row.total_lead_time_days}
                     />
                   </div>

@@ -17,6 +17,8 @@ export type PurchaseBreakdownRow = {
   image_url?: string;
   master_sku?: string;
   display_jan?: string;
+  fba_rsl_stock?: number;
+  theoretical_stock?: number;
 };
 
 export type PurchaseSkuSummaryRow = {
@@ -36,6 +38,8 @@ export type PurchaseSkuSummaryRow = {
   source_type?: "component_purchase_sku" | "component_jan";
   master_sku?: string;
   display_jan?: string;
+  fba_rsl_stock?: number;
+  theoretical_stock?: number;
 };
 
 function cleanText(value: unknown) {
@@ -53,6 +57,23 @@ function safeNumber(value: unknown) {
 
 function positiveInteger(value: unknown) {
   return Math.max(0, Math.floor(safeNumber(value)));
+}
+
+function getSalesSideStock(row: any) {
+  const fbaStock = positiveInteger(
+    row?.amazon_stock ?? row?.fba_stock ?? row?.fbaStock ?? 0
+  );
+  const rslStock = positiveInteger(
+    row?.rakuten_stock ?? row?.rsl_stock ?? row?.rslStock ?? 0
+  );
+  const fbaInbound = positiveInteger(
+    row?.fba_inbound_plan ?? row?.fba_inbound ?? row?.fbaInbound ?? 0
+  );
+  const rslInbound = positiveInteger(
+    row?.rsl_inbound_plan ?? row?.rsl_inbound ?? row?.rslInbound ?? 0
+  );
+
+  return fbaStock + rslStock + fbaInbound + rslInbound;
 }
 
 function normalizeItemType(value: unknown) {
@@ -258,6 +279,7 @@ export function buildPurchaseBreakdownRows(
     const baseRequiredQty = positiveInteger(
       row?.recommended_order_qty || row?.shortage_qty || 0
     );
+    const salesSideStock = getSalesSideStock(row);
 
     const componentRows: PurchaseBreakdownRow[] = [1, 2, 3, 4, 5].flatMap((n) => {
       const componentPurchaseSku = cleanText(
@@ -301,6 +323,8 @@ export function buildPurchaseBreakdownRows(
           image_url: meta.imageUrl,
           master_sku: meta.masterSku || cleanText(row?.sku),
           display_jan: meta.displayJan || cleanJan(row?.jan),
+          fba_rsl_stock: sourceType === "component_jan" ? salesSideStock * componentQty : 0,
+          theoretical_stock: sourceType === "component_purchase_sku" ? salesSideStock * componentQty : 0,
         },
       ];
     });
@@ -343,6 +367,8 @@ export function buildPurchaseBreakdownRows(
         image_url: meta.imageUrl,
         master_sku: meta.masterSku || cleanText(row?.sku),
         display_jan: meta.displayJan || selfJan,
+        fba_rsl_stock: salesSideStock,
+        theoretical_stock: 0,
       },
     ];
   });
@@ -391,6 +417,12 @@ export function buildPurchaseSkuSummaryRows(
       orderUnit
     );
 
+    const fbaRslStock =
+      (current?.fba_rsl_stock ?? 0) + positiveInteger(row.fba_rsl_stock ?? 0);
+
+    const theoreticalStock =
+      (current?.theoretical_stock ?? 0) + positiveInteger(row.theoretical_stock ?? 0);
+
     summaryMap.set(purchaseSku, {
       purchase_sku: purchaseSku,
       product_name:
@@ -421,6 +453,8 @@ export function buildPurchaseSkuSummaryRows(
       source_type: current?.source_type ?? row.source_type,
       master_sku: current?.master_sku ?? row.master_sku,
       display_jan: current?.display_jan ?? row.display_jan,
+      fba_rsl_stock: fbaRslStock,
+      theoretical_stock: theoreticalStock,
     });
   });
 
