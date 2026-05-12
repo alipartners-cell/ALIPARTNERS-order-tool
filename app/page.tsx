@@ -819,11 +819,9 @@ export default function HomePage() {
                 />
               ) : (
                 <OrderCalendar
-                  rows={rows}
+                  rows={purchaseSkuSummaryRows}
                   selected={selected}
                   onToggle={handleToggle}
-                  onDownloadOrderCsv={handleDownload}
-                  filterOrderOnly={false}
                   productMasters={productMasterBySku}
                   inspectionSelections={inspectionSelections}
                 />
