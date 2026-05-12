@@ -120,8 +120,7 @@ export default function HomePage() {
   const [rowOverridesLoaded, setRowOverridesLoaded] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [tableExpandedSkus, setTableExpandedSkus] = useState<Set<string>>(new Set());
-  const [tableSortType, setTableSortType] = useState<"priority" | "china" | "fba" | "rsl">("priority");
-  const [filterOrderOnly, setFilterOrderOnly] = useState(false);
+  const [tableSortType, setTableSortType] = useState<"fba" | "rsl">("fba");
   const [filterDeliveryOnly, setFilterDeliveryOnly] = useState(false);
   const [tableDisplayLimit, setTableDisplayLimit] = useState(100);
   const [errors, setErrors] = useState<string[]>([]);
@@ -139,6 +138,7 @@ export default function HomePage() {
   const [exportOrderQty, setExportOrderQty] = useState<Record<string, number>>({});
   const [masterNotice, setMasterNotice] = useState("");
   const [csvLoadStatus, setCsvLoadStatus] = useState<CsvLoadStatus>(EMPTY_CSV_LOAD_STATUS);
+  const [csvImportOpen, setCsvImportOpen] = useState(true);
 
   useEffect(() => {
     try {
@@ -593,47 +593,24 @@ export default function HomePage() {
   const totalOrderQty = rows.reduce((s, r) => s + r.recommended_order_qty, 0);
 
   const tableVisibleSkus = useMemo(() => {
-    const filtered = filterOrderOnly || filterDeliveryOnly
-      ? rows.filter((row) => {
-          const isOrder = row.status === "発注推奨" || row.recommended_order_qty > 0;
-          const isDelivery = row.fba_recommended_delivery_qty > 0 || row.rsl_recommended_delivery_qty > 0;
-          return (filterOrderOnly && isOrder) || (filterDeliveryOnly && isDelivery);
-        })
+    const filtered = filterDeliveryOnly
+      ? rows.filter((row) => row.fba_recommended_delivery_qty > 0 || row.rsl_recommended_delivery_qty > 0)
       : rows;
 
     return [...filtered]
       .sort((a, b) => {
-        if (tableSortType === "china") {
-          return Number(b.recommended_order_qty || 0) - Number(a.recommended_order_qty || 0);
-        }
-
-        if (tableSortType === "fba") {
-          return Number(b.fba_recommended_delivery_qty || 0) - Number(a.fba_recommended_delivery_qty || 0);
-        }
-
         if (tableSortType === "rsl") {
           return Number(b.rsl_recommended_delivery_qty || 0) - Number(a.rsl_recommended_delivery_qty || 0);
         }
 
-        const aPriority =
-          (a.recommended_order_qty > 0 ? 1000000000 : 0) +
-          a.recommended_order_qty +
-          a.fba_recommended_delivery_qty +
-          a.rsl_recommended_delivery_qty;
-        const bPriority =
-          (b.recommended_order_qty > 0 ? 1000000000 : 0) +
-          b.recommended_order_qty +
-          b.fba_recommended_delivery_qty +
-          b.rsl_recommended_delivery_qty;
-
-        return bPriority - aPriority;
+        return Number(b.fba_recommended_delivery_qty || 0) - Number(a.fba_recommended_delivery_qty || 0);
       })
       .map((row) => row.sku);
-  }, [rows, filterOrderOnly, filterDeliveryOnly, tableSortType]);
+  }, [rows, filterDeliveryOnly, tableSortType]);
 
   useEffect(() => {
     setTableDisplayLimit(100);
-  }, [filterOrderOnly, filterDeliveryOnly, tableSortType]);
+  }, [filterDeliveryOnly, tableSortType]);
 
   const tableDisplayedSkus = useMemo(
     () => tableVisibleSkus.slice(0, tableDisplayLimit),
@@ -757,13 +734,6 @@ export default function HomePage() {
                     スプレッドシート発注表作成
                   </button>
 
-                  <button
-                    onClick={handleDownload}
-                    disabled={selected.size === 0}
-                    className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-30"
-                  >
-                    ↓ 発注CSVダウンロード
-                  </button>
                 </div>
               )}
             </div>
@@ -787,6 +757,8 @@ export default function HomePage() {
                 onFile={handleFile}
                 onApplyFiles={handleApplyChannelFiles}
                 csvLoadStatus={csvLoadStatus}
+                open={csvImportOpen}
+                onToggleOpen={() => setCsvImportOpen((v) => !v)}
               />
             )}
 
@@ -802,9 +774,7 @@ export default function HomePage() {
                 onToggleAll={handleToggleAll}
                 sortType={tableSortType}
                 onSortTypeChange={setTableSortType}
-                filterOrderOnly={filterOrderOnly}
                 filterDeliveryOnly={filterDeliveryOnly}
-                onToggleOrderFilter={() => setFilterOrderOnly((v) => !v)}
                 onToggleDeliveryFilter={() => setFilterDeliveryOnly((v) => !v)}
                 expandedCount={tableExpandedSkus.size}
                 onExpandAll={() => setTableExpandedSkus(new Set(tableDisplayedSkus))}
@@ -819,7 +789,6 @@ export default function HomePage() {
                   selected={selected}
                   onToggle={handleToggle}
                   onToggleAll={handleToggleAll}
-                  filterOrderOnly={filterOrderOnly}
                   filterDeliveryOnly={filterDeliveryOnly}
                   params={appliedParams}
                   productMasters={productMasterBySku}
@@ -854,7 +823,7 @@ export default function HomePage() {
                   selected={selected}
                   onToggle={handleToggle}
                   onDownloadOrderCsv={handleDownload}
-                  filterOrderOnly={filterOrderOnly}
+                  filterOrderOnly={false}
                   productMasters={productMasterBySku}
                   inspectionSelections={inspectionSelections}
                 />

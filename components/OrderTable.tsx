@@ -16,13 +16,12 @@ interface Props {
   selected: Set<string>;
   onToggle: (sku: string) => void;
   onToggleAll: (skus: string[]) => void;
-  filterOrderOnly: boolean;
   filterDeliveryOnly: boolean;
   params: OrderParams;
   productMasters: Record<string, ProductMasterItem>;
   inspectionSelections?: unknown;
   onOpenMaster?: (sku: string) => void;
-  sortType: "priority" | "china" | "fba" | "rsl";
+  sortType: "fba" | "rsl";
   expandedSkus: Set<string>;
   onToggleExpanded: (sku: string) => void;
 }
@@ -99,32 +98,40 @@ function ChannelSummaryCard({
   );
 }
 
-function OrderReasonSummary({
-  requiredTotalSet,
-  availableTotalSet,
-  shortageSet,
-  unitPerSet,
-  totalLeadTimeDays,
+function ChannelOrderReasonSummary({
+  title,
+  required,
+  stock,
+  inbound,
+  recommended,
+  unitLabel,
 }: {
-  requiredTotalSet: number;
-  availableTotalSet: number;
-  shortageSet: number;
-  unitPerSet: number;
-  totalLeadTimeDays: number;
+  title: string;
+  required: number;
+  stock: number;
+  inbound: number;
+  recommended: number;
+  unitLabel: string;
 }) {
+  const shortageBeforeClamp = Number(required || 0) - Number(stock || 0) - Number(inbound || 0);
+
   return (
     <div className="rounded-2xl border border-gray-200 bg-gray-50/70 px-3 py-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-black text-gray-800">
-        <span>計算根拠</span>
+        <span>{title} 計算根拠</span>
         <span className="text-gray-300">|</span>
-        <span>必要 {smallNum(requiredTotalSet)}セット</span>
+        <span>必要 {smallNum(required)}{unitLabel}</span>
         <span>−</span>
-        <span>有効在庫 {smallNum(availableTotalSet)}セット</span>
+        <span>在庫 {smallNum(stock)}{unitLabel}</span>
+        <span>−</span>
+        <span>納品見込み {smallNum(inbound)}{unitLabel}</span>
         <span>=</span>
-        <span>不足 {smallNum(shortageSet)}セット</span>
+        <span>不足 {smallNum(Math.max(0, shortageBeforeClamp))}{unitLabel}</span>
+        <span>→</span>
+        <span>納品推奨 {smallNum(recommended)}{unitLabel}</span>
       </div>
       <div className="mt-1 text-[10px] font-bold text-gray-500">
-        必要数は「Amazon日販＋楽天日販」× 総LT{smallNum(totalLeadTimeDays)}日。AP在庫はセット換算して有効在庫に含めています。
+        必要数は日販 × 総LTで算出。納品推奨数は在庫と納品見込みを差し引いて表示しています。
       </div>
     </div>
   );
@@ -135,7 +142,6 @@ export default function OrderTable({
   selected,
   onToggle,
   onToggleAll,
-  filterOrderOnly,
   filterDeliveryOnly,
   params,
   productMasters,
@@ -152,17 +158,11 @@ export default function OrderTable({
       : rows;
 
     return [...filtered].sort((a, b) => {
-      if (sortType === "fba") {
-        return Number(b.fba_recommended_delivery_qty || 0) - Number(a.fba_recommended_delivery_qty || 0);
-      }
-
       if (sortType === "rsl") {
         return Number(b.rsl_recommended_delivery_qty || 0) - Number(a.rsl_recommended_delivery_qty || 0);
       }
 
-      const aPriority = Number(a.fba_recommended_delivery_qty || 0) + Number(a.rsl_recommended_delivery_qty || 0);
-      const bPriority = Number(b.fba_recommended_delivery_qty || 0) + Number(b.rsl_recommended_delivery_qty || 0);
-      return bPriority - aPriority;
+      return Number(b.fba_recommended_delivery_qty || 0) - Number(a.fba_recommended_delivery_qty || 0);
     });
   }, [rows, filterDeliveryOnly, sortType]);
 
@@ -241,13 +241,24 @@ export default function OrderTable({
                       />
                     </div>
 
-                    <OrderReasonSummary
-                      requiredTotalSet={row.fba_required_stock + row.rsl_required_stock}
-                      availableTotalSet={row.amazon_stock + row.rakuten_stock + row.fba_inbound_plan + row.rsl_inbound_plan + Math.floor(Number(row.ap_stock || 0) / unitPerSet)}
-                      shortageSet={row.shortage_qty}
-                      unitPerSet={unitPerSet}
-                      totalLeadTimeDays={row.total_lead_time_days}
-                    />
+                    <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+                      <ChannelOrderReasonSummary
+                        title="FBA"
+                        required={row.fba_required_stock}
+                        stock={row.amazon_stock}
+                        inbound={row.fba_inbound_plan}
+                        recommended={row.fba_recommended_delivery_qty}
+                        unitLabel={deliveryUnitLabel}
+                      />
+                      <ChannelOrderReasonSummary
+                        title="RSL"
+                        required={row.rsl_required_stock}
+                        stock={row.rakuten_stock}
+                        inbound={row.rsl_inbound_plan}
+                        recommended={row.rsl_recommended_delivery_qty}
+                        unitLabel={deliveryUnitLabel}
+                      />
+                    </div>
                   </div>
                 )}
 

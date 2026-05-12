@@ -19,15 +19,18 @@ export default function CsvImportStrip({
   onFile,
   onApplyFiles,
   csvLoadStatus,
+  open,
+  onToggleOpen,
 }: {
   filename: string;
   loading: boolean;
   onFile: (file: File) => void;
   onApplyFiles: (items: { file: File; channel: SalesChannel; kind: CsvDataKind }[]) => void;
   csvLoadStatus: CsvLoadStatus;
+  open: boolean;
+  onToggleOpen: () => void;
 }) {
   const [dragging, setDragging] = useState(false);
-  const [csvOpen, setCsvOpen] = useState(true);
   const [items, setItems] = useState<{ id: string; file: File; channel: SalesChannel; kind: CsvDataKind }[]>([]);
 
   const addFiles = (files: FileList | null) => {
@@ -78,14 +81,14 @@ export default function CsvImportStrip({
         </div>
         <button
           type="button"
-          onClick={() => setCsvOpen((v) => !v)}
+          onClick={onToggleOpen}
           className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 shadow-sm hover:bg-gray-50"
         >
-          {csvOpen ? "閉じる ▲" : "開く ▼"}
+          {open ? "閉じる ▲" : "開く ▼"}
         </button>
       </div>
 
-      {csvOpen && (
+      {open && (
         <>
           <label
             onDragOver={(event) => {
