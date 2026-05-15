@@ -27,11 +27,23 @@ export default function CsvImportStrip({
   onFile: (file: File) => void;
   onApplyFiles: (items: { file: File; channel: SalesChannel; kind: CsvDataKind }[]) => void;
   csvLoadStatus: CsvLoadStatus;
-  open: boolean;
-  onToggleOpen: () => void;
+  open?: boolean;
+  onToggleOpen?: () => void;
 }) {
   const [dragging, setDragging] = useState(false);
+  const [internalCsvOpen, setInternalCsvOpen] = useState(true);
   const [items, setItems] = useState<{ id: string; file: File; channel: SalesChannel; kind: CsvDataKind }[]>([]);
+
+  const csvOpen = open ?? internalCsvOpen;
+
+  const toggleCsvOpen = () => {
+    if (onToggleOpen) {
+      onToggleOpen();
+      return;
+    }
+
+    setInternalCsvOpen((v) => !v);
+  };
 
   const addFiles = (files: FileList | null) => {
     const nextFiles = Array.from(files ?? []).filter((file) => file.name.toLowerCase().endsWith(".csv"));
@@ -81,14 +93,14 @@ export default function CsvImportStrip({
         </div>
         <button
           type="button"
-          onClick={onToggleOpen}
+          onClick={toggleCsvOpen}
           className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 shadow-sm hover:bg-gray-50"
         >
-          {open ? "閉じる ▲" : "開く ▼"}
+          {csvOpen ? "閉じる ▲" : "開く ▼"}
         </button>
       </div>
 
-      {open && (
+      {csvOpen && (
         <>
           <label
             onDragOver={(event) => {
@@ -117,7 +129,16 @@ export default function CsvImportStrip({
                 <span className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white">CSV選択</span>
               </div>
             </div>
-            <input type="file" accept=".csv,text/csv" multiple className="hidden" onChange={(event) => { addFiles(event.currentTarget.files); event.currentTarget.value = ""; }} />
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                addFiles(event.currentTarget.files);
+                event.currentTarget.value = "";
+              }}
+            />
           </label>
 
           <CsvStatusPanel status={csvLoadStatus} />
@@ -127,23 +148,52 @@ export default function CsvImportStrip({
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-xs font-bold text-gray-700">取込待ちCSV</p>
                 <div className="flex gap-2">
-                  <button onClick={() => setItems([])} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50">クリア</button>
-                  <button onClick={apply} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-500">CSVを反映</button>
+                  <button
+                    onClick={() => setItems([])}
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50"
+                  >
+                    クリア
+                  </button>
+                  <button
+                    onClick={apply}
+                    className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-500"
+                  >
+                    CSVを反映
+                  </button>
                 </div>
               </div>
               <div className="space-y-2">
                 {items.map((item) => (
-                  <div key={item.id} className="grid grid-cols-[1fr_140px_120px_40px] items-center gap-2 rounded-lg bg-gray-50 px-3 py-2">
+                  <div
+                    key={item.id}
+                    className="grid grid-cols-[1fr_140px_120px_40px] items-center gap-2 rounded-lg bg-gray-50 px-3 py-2"
+                  >
                     <span className="truncate text-xs font-mono text-gray-600">{item.file.name}</span>
-                    <select value={item.channel} onChange={(e) => setItems((prev) => prev.map((v) => {
-                      if (v.id !== item.id) return v;
-                      const nextChannel = e.target.value as SalesChannel;
-                      return { ...v, channel: nextChannel, kind: nextChannel === "rakuten" ? "sales" : "inventory" };
-                    }))} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-700">
+                    <select
+                      value={item.channel}
+                      onChange={(e) =>
+                        setItems((prev) =>
+                          prev.map((v) => {
+                            if (v.id !== item.id) return v;
+                            const nextChannel = e.target.value as SalesChannel;
+                            return { ...v, channel: nextChannel, kind: nextChannel === "rakuten" ? "sales" : "inventory" };
+                          })
+                        )
+                      }
+                      className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-700"
+                    >
                       <option value="amazon">Amazon/FBA</option>
                       <option value="rakuten">楽天/RSL</option>
                     </select>
-                    <select value={item.kind} onChange={(e) => setItems((prev) => prev.map((v) => v.id === item.id ? { ...v, kind: e.target.value as CsvDataKind } : v))} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-700">
+                    <select
+                      value={item.kind}
+                      onChange={(e) =>
+                        setItems((prev) =>
+                          prev.map((v) => (v.id === item.id ? { ...v, kind: e.target.value as CsvDataKind } : v))
+                        )
+                      }
+                      className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold text-gray-700"
+                    >
                       {item.channel === "rakuten" ? (
                         <>
                           <option value="sales">売上</option>
@@ -156,7 +206,13 @@ export default function CsvImportStrip({
                         </>
                       )}
                     </select>
-                    <button onClick={() => setItems((prev) => prev.filter((v) => v.id !== item.id))} className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-black text-gray-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600" title="このCSVを削除">×</button>
+                    <button
+                      onClick={() => setItems((prev) => prev.filter((v) => v.id !== item.id))}
+                      className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-black text-gray-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                      title="このCSVを削除"
+                    >
+                      ×
+                    </button>
                   </div>
                 ))}
               </div>

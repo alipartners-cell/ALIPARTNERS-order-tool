@@ -215,7 +215,7 @@ async function parseRakutenCombinedCsvFile(file: File): Promise<{ rows: Partial<
   objectResult.rows.forEach((r, index) => {
     // 楽天SKU実績レポートは、Amazon/RakutenのSKU差異を吸収するためJANを主キーにする。
     // JANは「メーカー品番」が最も安定。Excel等で指数表記になった場合は cleanJan で可能な範囲で復元する。
-    const jan = cleanJan(r["メーカー品番"] ?? r["JANコード"] ?? r["倉庫内商品コード"] ?? pick(r, JAN_ALIASES));
+    const jan = cleanJan(r["倉庫内商品コード"]);
     if (!jan) {
       errors.push(`${file.name} ${index + 1}行目: JANを判別できません`);
       return;
