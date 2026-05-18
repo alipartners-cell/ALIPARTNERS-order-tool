@@ -9,7 +9,6 @@ import {
   normalizeSku,
   normalizeMaster,
   hasComponentJan,
-  getMasterStatus,
 } from "@/lib/productMasterNormalizer";
 import {
   MASTER_TEMPLATE_SAMPLE,
@@ -28,7 +27,27 @@ type Props = {
   focusSku?: string;
 };
 
+function hasComponentPurchaseSku(item: ProductMasterItemWithSet) {
+  return [
+    item.component_purchase_sku_1,
+    item.component_purchase_sku_2,
+    item.component_purchase_sku_3,
+    item.component_purchase_sku_4,
+    item.component_purchase_sku_5,
+  ].some((sku) => String(sku ?? "").trim());
+}
 
+function hasComponentLink(item: ProductMasterItemWithSet) {
+  return hasComponentJan(item) || hasComponentPurchaseSku(item);
+}
+
+function getMasterStatusForCurrentRules(item: ProductMasterItemWithSet): "complete" | "draft" {
+  if (!item.sku) return "draft";
+  if ((item.item_type === "set" || item.item_type === "bundle") && !hasComponentLink(item)) {
+    return "draft";
+  }
+  return "complete";
+}
 
 
 export default function ProductMaster({
@@ -79,7 +98,8 @@ export default function ProductMaster({
   const filteredMasters = useMemo(() => {
     const q = query.trim().toLowerCase();
     return normalizedMasters.filter((item) => {
-      if (statusFilter !== "all" && item.master_status !== statusFilter) return false;
+      const currentStatus = getMasterStatusForCurrentRules(item);
+      if (statusFilter !== "all" && currentStatus !== statusFilter) return false;
       if (!q) return true;
       return [item.sku, item.jan, item.asin, item.product_name, item.product_url, item.item_type, item.component_jan_1, item.component_jan_2, item.component_jan_3, item.component_jan_4, item.component_jan_5, item.component_purchase_sku_1, item.component_purchase_sku_2, item.component_purchase_sku_3, item.component_purchase_sku_4, item.component_purchase_sku_5]
         .join(" ")
@@ -110,16 +130,17 @@ export default function ProductMaster({
     const item: ProductMasterItemWithSet = normalizeMaster({
       ...form,
       sku,
-      master_status: "complete",
     });
 
-    if ((item.item_type === "set" || item.item_type === "bundle") && !hasComponentJan(item)) {
+    if ((item.item_type === "set" || item.item_type === "bundle") && !hasComponentLink(item)) {
       alert(item.item_type === "set"
-        ? "セット商品は、構成する単品JANを1つ以上入力してください"
-        : "付属品は、付属先の親商品JANをcomponent_janに入力してください"
+        ? "セット商品は、構成JANまたは構成発注SKUを1つ以上入力してください"
+        : "付属品は、付属先の親商品JANまたは発注SKUを1つ以上入力してください"
       );
       return;
     }
+
+    item.master_status = getMasterStatusForCurrentRules(item);
 
     if (!editingSku && masterBySku.has(sku)) {
       const ok = confirm("同じSKUがすでにあります。上書きしますか？");
@@ -252,7 +273,7 @@ export default function ProductMaster({
       parsed.forEach((item) => {
         if (current.has(item.sku)) updated += 1;
         else added += 1;
-        current.set(item.sku, { ...item, master_status: getMasterStatus(item) });
+        current.set(item.sku, { ...item, master_status: getMasterStatusForCurrentRules(item) });
       });
 
       onChange(Array.from(current.values()).sort((a, b) => a.sku.localeCompare(b.sku)));
@@ -318,7 +339,7 @@ export default function ProductMaster({
         <SummaryCard label="登録SKU" value={normalizedMasters.length} />
         <SummaryCard
           label="要補完"
-          value={normalizedMasters.filter((item) => item.master_status === "draft").length}
+          value={normalizedMasters.filter((item) => getMasterStatusForCurrentRules(item) === "draft").length}
         />
       </div>
 
@@ -628,7 +649,7 @@ export default function ProductMaster({
                       )}
                     </td>
                     <td className="px-3 py-2">
-                      {item.master_status === "draft" ? (
+                      {getMasterStatusForCurrentRules(item) === "draft" ? (
                         <span className="inline-flex h-[20px] items-center rounded-full border border-amber-200 bg-amber-50 px-2 text-[10px] font-bold text-amber-700">要補完</span>
                       ) : (
                         <span className="inline-flex h-[20px] items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 text-[10px] font-bold text-emerald-700">登録済み</span>
